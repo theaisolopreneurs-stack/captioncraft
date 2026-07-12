@@ -316,8 +316,7 @@ if (typeof SharedArrayBuffer === 'undefined' || !crossOriginIsolated) {
 }
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/umd/ffmpeg.js"></script>
-<script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
 </head>
 <body>
 <!-- SETTINGS DRAWER -->
@@ -920,32 +919,84 @@ function scrub(t){const v=document.getElementById('posV');if(v.src)v.currentTime
 function initPos(){
   const v=document.getElementById('posV');
   if(vFile&&!v.src){v.src=URL.createObjectURL(vFile);v.load();}
+  // Set initial position from coordinate inputs
+  setPosFromCoords();
   renderPos();
   const pv=document.getElementById('posVid');
-  let drag=false,startY=0,startPos=yPos;
-  const PH=()=>pv.offsetHeight||320;
-  function mv(cy){const dy=cy-startY;yPos=Math.max(20,Math.min(vH-20,startPos+(dy/PH())*vH));renderPos();}
-  pv.addEventListener('mousedown',e=>{drag=true;startY=e.clientY;startPos=yPos;e.preventDefault();});
-  window.addEventListener('mousemove',e=>{if(drag)mv(e.clientY);});
-  window.addEventListener('mouseup',()=>drag=false);
-  pv.addEventListener('touchstart',e=>{drag=true;startY=e.touches[0].clientY;startPos=yPos;e.preventDefault();},{passive:false});
-  window.addEventListener('touchmove',e=>{if(drag)mv(e.touches[0].clientY);});
-  window.addEventListener('touchend',()=>drag=false);
+
+  // Single unified drag handler for both X and Y
+  let dragging=false;
+  let startX=0, startY=0;
+  let startXpos=xPos, startYpos=yPos;
+
+  function onDragStart(cx, cy){
+    dragging=true;
+    startX=cx; startY=cy;
+    startXpos=xPos; startYpos=yPos;
+  }
+  function onDragMove(cx, cy){
+    if(!dragging) return;
+    const PW=pv.offsetWidth||180;
+    const PH=pv.offsetHeight||320;
+    const dx=cx-startX;
+    const dy=cy-startY;
+    xPos=Math.max(0,Math.min(100,startXpos+(dx/PW)*100));
+    yPos=Math.max(20,Math.min(vH-20,startYpos+(dy/PH)*vH));
+    renderPos();
+  }
+  function onDragEnd(){ dragging=false; }
+
+  pv.addEventListener('mousedown',e=>{onDragStart(e.clientX,e.clientY);e.preventDefault();});
+  window.addEventListener('mousemove',e=>{onDragMove(e.clientX,e.clientY);});
+  window.addEventListener('mouseup',onDragEnd);
+  pv.addEventListener('touchstart',e=>{
+    onDragStart(e.touches[0].clientX,e.touches[0].clientY);
+    e.preventDefault();
+  },{passive:false});
+  window.addEventListener('touchmove',e=>{
+    if(dragging) onDragMove(e.touches[0].clientX,e.touches[0].clientY);
+  },{passive:true});
+  window.addEventListener('touchend',onDragEnd);
 }
 function renderPos(){
-  const pv=document.getElementById('posVid'),PH=pv.offsetHeight||320;
-  const scale=PH/vH,yPx=yPos*scale;
-  document.getElementById('posOv').style.top=yPx+'px';
-  document.getElementById('posGuide').style.top=yPx+'px';
+  const pv=document.getElementById('posVid');
+  const PH=pv.offsetHeight||320;
+  const PW=pv.offsetWidth||180;
+  const scale=PH/vH;
+  const yPx=yPos*scale;
+  const xPx=(xPos/100)*PW;
+
+  // Position the caption overlay
+  const ov=document.getElementById('posOv');
+  if(ov){
+    ov.style.top=yPx+'px';
+    ov.style.left=xPx+'px';
+    ov.style.transform='translateX(-50%)';
+    ov.innerHTML=capPreview(captions[0]?.text||'Sample caption',style,fontSize,hlColor,scale);
+  }
+  const guide=document.getElementById('posGuide');
+  if(guide) guide.style.top=yPx+'px';
+
+  // Safe zone
   const safePx=(vH-30)*scale;
-  document.getElementById('safeZ').style.height=(PH-safePx)+'px';
-  document.getElementById('safeZ').classList.toggle('sh',(PH-yPx)<30*scale);
-  document.getElementById('posOv').innerHTML=capPreview(captions[0]?.text||'Sample caption',style,fontSize,hlColor,scale);
-  const pct=Math.round(yPos/vH*100);
-  document.getElementById('posPct').textContent=pct+'%';
-  document.getElementById('posYV').textContent=Math.round(yPos)+'px';
-  document.getElementById('posYI').value=Math.round(yPos);
-  document.getElementById('cropW').classList.toggle('sh',(vH-yPos)<60);
+  const safeZ=document.getElementById('safeZ');
+  if(safeZ){
+    safeZ.style.height=(PH-safePx)+'px';
+    safeZ.classList.toggle('sh',(PH-yPx)<30*scale);
+  }
+
+  // Crop warning
+  const cw=document.getElementById('cropW');
+  if(cw) cw.classList.toggle('sh',(vH-yPos)<60);
+
+  // Sync coordinate inputs (don't update while user is typing)
+  const px=(xPos/100)*vW;
+  const coords=pixelsToCoords(px,yPos,vW,vH);
+  const xi=document.getElementById('posXcoord');
+  const yi=document.getElementById('posYcoord');
+  if(xi&&document.activeElement!==xi) xi.value=coords.xc;
+  if(yi&&document.activeElement!==yi) yi.value=coords.yc;
+  xCoord=coords.xc; yCoord=coords.yc;
 }
 function setPosIn(v){yPos=Math.max(20,Math.min(vH-20,parseInt(v)||0));renderPos();}
 function capPreview(text,st,fs,color,scale){
@@ -1269,43 +1320,9 @@ transBrowser = async function(){
   }
 };
 
-// ── FIX 5: Horizontal drag on position tool ──
-// Extend initPos to also handle horizontal drag
-const _origInitPos = initPos;
-initPos = function(){
-  _origInitPos();
-  // add x drag support
-  const pv=document.getElementById('posVid');
-  let drag=false, startX=0, startXPos=xPos;
-  const PW=()=>pv.offsetWidth||180;
+// x drag handled in unified initPos below
 
-  function mvX(cx){
-    const dx=cx-startX;
-    xPos=Math.max(0,Math.min(100,startXPos+(dx/PW())*100));
-    renderPos();
-  }
-  pv.addEventListener('mousedown',e=>{drag=true;startX=e.clientX;startXPos=xPos;});
-  window.addEventListener('mousemove',e=>{if(drag){mvX(e.clientX);}});
-  window.addEventListener('mouseup',()=>{drag=false;});
-  pv.addEventListener('touchstart',e=>{drag=true;startX=e.touches[0].clientX;startXPos=xPos;e.preventDefault();},{passive:false});
-  window.addEventListener('touchmove',e=>{if(drag)mvX(e.touches[0].clientX);});
-};
-
-// Extend renderPos to apply xPos
-const _origRenderPos = renderPos;
-renderPos = function(){
-  _origRenderPos();
-  const pv=document.getElementById('posVid');
-  const PW=pv.offsetWidth||180;
-  const xPx=(xPos/100)*PW;
-  const ov=document.getElementById('posOv');
-  // override left position
-  ov.style.left=xPx+'px';
-  ov.style.transform='translateX(-50%)';
-  // update stat display
-  const xStat=document.getElementById('posXPct');
-  if(xStat)xStat.textContent=Math.round(xPos)+'%';
-};
+// Extend renderPos // renderPos unified above
 
 // ── FIX 6: OS detection and ZIP download ──
 function detectOS(){
@@ -1501,19 +1518,7 @@ function applyPreset(xc, yc) {
 }
 
 // Override renderPos to sync coord inputs from drag
-const _origRenderPos2 = renderPos;
-renderPos = function() {
-  _origRenderPos2();
-  // Sync coordinate inputs from current xPos/yPos
-  const px = (xPos / 100) * vW;
-  const coords = pixelsToCoords(px, yPos, vW, vH);
-  const xi = document.getElementById('posXcoord');
-  const yi = document.getElementById('posYcoord');
-  if (xi && document.activeElement !== xi) xi.value = coords.xc;
-  if (yi && document.activeElement !== yi) yi.value = coords.yc;
-  xCoord = coords.xc;
-  yCoord = coords.yc;
-};
+// coord sync handled directly in renderPos
 
 // ── FFMPEG.WASM BURN ENGINE ──
 let ffmpegLoaded = false;
@@ -1521,20 +1526,19 @@ let ffmpegInstance = null;
 
 async function loadFFmpeg() {
   if (ffmpegLoaded) return ffmpegInstance;
-  const { FFmpeg } = FFmpegWASM;
-  const { fetchFile, toBlobURL } = FFmpegUtil;
-  const ff = new FFmpeg();
-  ff.on('log', ({ message }) => console.log('[ffmpeg]', message));
-  ff.on('progress', ({ progress }) => {
-    const pct = Math.round(progress * 100);
-    document.getElementById('burnFill').style.width = Math.max(40, pct) + '%';
-    document.getElementById('burnSub').textContent = 'Burning captions... ' + pct + '%';
+  const { createFFmpeg, fetchFile } = FFmpeg;
+  const ff = createFFmpeg({
+    log: false,
+    corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+    progress: ({ ratio }) => {
+      if (ratio > 0) {
+        const pct = Math.round(ratio * 100);
+        document.getElementById('burnFill').style.width = Math.max(40, pct) + '%';
+        document.getElementById('burnSub').textContent = 'Burning captions... ' + pct + '%';
+      }
+    }
   });
-  const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-  await ff.load({
-    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-  });
+  await ff.load();
   ffmpegLoaded = true;
   ffmpegInstance = ff;
   return ff;
@@ -1553,43 +1557,33 @@ async function startBurn() {
   document.getElementById('burnSub').textContent = 'First use downloads ~30MB once, then caches permanently';
 
   try {
-    const { fetchFile } = FFmpegUtil;
+    const { fetchFile } = FFmpeg;
     const ff = await loadFFmpeg();
 
     setBurnProg('Loading your video...', 20);
-    const videoData = await fetchFile(vFile);
-    await ff.writeFile('input.mp4', videoData);
+    ff.FS('writeFile', 'input.mp4', await fetchFile(vFile));
 
     setBurnProg('Writing captions...', 30);
-    const srt = buildSRT();
-    const enc = new TextEncoder();
-    await ff.writeFile('captions.srt', enc.encode(srt));
+    ff.FS('writeFile', 'captions.srt', new TextEncoder().encode(buildSRT()));
 
     setBurnProg('Burning captions into video...', 40);
-
-    // Build ASS/subtitle filter with style
     const mv = Math.round(vH - yPos);
-    const mx = Math.round((xPos / 100) * vW - vW / 2);
-    const styleStr = buildFFmpegStyle(mv, mx);
-
+    const styleStr = buildFFmpegStyle(mv);
     const outName = getOutFilename() + '_captioned.mp4';
 
-    // Use subtitle filter — stream copy video, re-encode only if needed
-    const ret = await ff.exec([
+    await ff.run(
       '-i', 'input.mp4',
       '-vf', `subtitles=captions.srt:force_style='${styleStr}'`,
       '-c:a', 'copy',
       '-preset', 'ultrafast',
       outName
-    ]);
+    );
 
     setBurnProg('Finalizing...', 95);
-
-    const data = await ff.readFile(outName);
+    const data = ff.FS('readFile', outName);
     const blob = new Blob([data.buffer], { type: 'video/mp4' });
     const url = URL.createObjectURL(blob);
 
-    // Wire download button
     const dlBtn = document.getElementById('dlFinalBtn');
     dlBtn.onclick = () => {
       const a = document.createElement('a');
@@ -1599,16 +1593,15 @@ async function startBurn() {
     };
     document.getElementById('dlFinalName').textContent = outName;
 
-    // Cleanup ffmpeg files
-    await ff.deleteFile('input.mp4');
-    await ff.deleteFile('captions.srt');
-    await ff.deleteFile(outName);
+    // Cleanup
+    try { ff.FS('unlink', 'input.mp4'); } catch(e){}
+    try { ff.FS('unlink', 'captions.srt'); } catch(e){}
+    try { ff.FS('unlink', outName); } catch(e){}
 
     setBurnProg('Done!', 100);
     document.getElementById('burnFill').classList.add('ok');
     document.getElementById('burnProgress').style.display = 'none';
     document.getElementById('burnDone').style.display = 'block';
-
     showToast('Captions burned successfully!');
 
   } catch(e) {
@@ -1624,7 +1617,7 @@ function setBurnProg(title, pct) {
   document.getElementById('burnFill').style.width = pct + '%';
 }
 
-function buildFFmpegStyle(marginV, marginH) {
+function buildFFmpegStyle(marginV) {
   const colors = {
     amber: '&H00B3FF',   // amber in BGR hex
     green: '&H76C55E',   // green
