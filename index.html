@@ -149,7 +149,7 @@ textarea.fi{resize:vertical;min-height:88px;padding:9px 12px;line-height:1.6}
 .pw span{font-size:10px;font-weight:800;color:#fff;background:rgba(0,0,0,.78);padding:2px 8px;border-radius:4px;font-family:'Inter',sans-serif}
 .pc2 span{font-size:9px;font-weight:900;color:#fff;letter-spacing:.1em;text-transform:uppercase;font-family:'Inter',sans-serif}
 .pl span{font-size:16px;font-weight:900;color:#FFB300;font-family:'Inter',sans-serif;display:block;text-align:center;line-height:1}
-.po{background:rgba(255,255,255,.92);padding:3px 10px;border-radius:4px}.po span{font-size:10px;font-weight:900;color:#111;font-family:'Inter',sans-serif;letter-spacing:.01em}
+.po span{font-size:10px;font-weight:900;color:#111;font-family:'Inter',sans-serif;letter-spacing:.01em;-webkit-text-stroke:2px #000;paint-order:stroke fill}
 
 /* STYLE SETTINGS */
 .r2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
@@ -305,6 +305,16 @@ input[type=color].cc{width:34px;height:26px;padding:1px 2px;border:1px solid var
   .app{padding:16px 14px 70px}
 }
 </style>
+<script>
+// Required for ffmpeg.wasm SharedArrayBuffer support on GitHub Pages
+if (typeof SharedArrayBuffer === 'undefined' || !crossOriginIsolated) {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./coi-serviceworker.js').then(reg => {
+      if (!reg.active) { window.location.reload(); }
+    }).catch(err => console.warn('COI SW failed:', err));
+  }
+}
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/umd/ffmpeg.js"></script>
 <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
@@ -501,12 +511,13 @@ input[type=color].cc{width:34px;height:26px;padding:1px 2px;border:1px solid var
         <div class="spv"><div class="pl" id="pvl"><span>ONE</span></div></div>
         <div class="sn">One Word</div><div class="sd2">Large karaoke style</div></div>
       <div class="scd" data-s="outline" onclick="pickSt(this)"><div class="sck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
-        <div class="spv"><div class="po"><span>Caption text</span></div></div>
+        <div class="spv" style="background:#888"><div class="po"><span>Caption text</span></div></div>
         <div class="sn">Outlined</div><div class="sd2">Bold outline, no pill</div></div></div>
     <div class="card" style="margin-top:12px">
       <div class="r2">
         <div><label class="fl">Words per line</label>
           <div class="wo">
+            <div class="wb" data-w="1" onclick="pickWpl(this)">1</div>
             <div class="wb sel" data-w="2" onclick="pickWpl(this)">2</div>
             <div class="wb" data-w="3" onclick="pickWpl(this)">3</div>
             <div class="wb" data-w="4" onclick="pickWpl(this)">4</div></div></div>
@@ -861,7 +872,21 @@ function pickSt(card){
   const ocs=document.getElementById('outlineColorSection');
   if(ocs)ocs.style.display=style==='outline'?'block':'none';
 }
-function pickWpl(btn){document.querySelectorAll('.wb').forEach(b=>b.classList.remove('sel'));btn.classList.add('sel');wpl=parseInt(btn.dataset.w);}
+function pickWpl(btn){
+  document.querySelectorAll('.wb').forEach(b=>b.classList.remove('sel'));
+  btn.classList.add('sel');
+  wpl=parseInt(btn.dataset.w);
+  // Rebuild caption lines if we already have captions
+  if(captions.length>0){
+    // Flatten back to words and rebuild at new wpl
+    const words=captions.flatMap(c=>c.text.split(/\s+/).filter(Boolean).map((w,i,arr)=>{
+      const dur=(c.end-c.start)/arr.length;
+      return{word:w,start:c.start+i*dur,end:c.start+(i+1)*dur};
+    }));
+    buildCaps(words);
+    if(document.getElementById('step4').classList.contains('act')) renderEditor();
+  }
+}
 function setFs(v){fontSize=parseInt(v);document.getElementById('fsLbl').textContent=v;document.getElementById('fsV').textContent=v;}
 function pickC(el,c){document.querySelectorAll('.sw').forEach(s=>s.classList.remove('sel'));el.classList.add('sel');hlColor=c;document.getElementById('cPicker').value=c;}
 function customC(c){hlColor=c;document.querySelectorAll('.sw:not([data-oc])').forEach(s=>s.classList.remove('sel'));}
@@ -930,7 +955,7 @@ function capPreview(text,st,fs,color,scale){
     case'white':return`<span style="font-family:Inter,sans-serif;font-size:${s};font-weight:800;color:#fff;background:rgba(0,0,0,.78);padding:2px 8px;border-radius:4px">${text}</span>`;
     case'caps':return`<span style="font-family:Inter,sans-serif;font-size:${s};font-weight:900;color:#fff;letter-spacing:.08em;text-transform:uppercase">${text}</span>`;
     case'large':return`<span style="font-family:Inter,sans-serif;font-size:${Math.round(fs*scale)}px;font-weight:900;color:${color}">${ws[0]||text}</span>`;
-    case'outline':return`<span style="font-family:Inter,sans-serif;font-size:${s};font-weight:800;color:${hlColor||'#111'};background:rgba(255,255,255,.92);padding:2px 8px;border-radius:4px;-webkit-text-stroke:1.5px ${outlineColor||'#000'};">${text}</span>`;
+    case'outline':return`<span style="font-family:Inter,sans-serif;font-size:${s};font-weight:900;color:${hlColor||'#111'};-webkit-text-stroke:2px ${outlineColor||'#000'};paint-order:stroke fill;text-shadow:-2px -2px 0 ${outlineColor||'#000'},2px -2px 0 ${outlineColor||'#000'},-2px 2px 0 ${outlineColor||'#000'},2px 2px 0 ${outlineColor||'#000'}">${text}</span>`;
     default:return`<span style="color:#fff;font-size:${s}">${text}</span>`;
   }
 }
