@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CaptionCraft v3</title>
+<title>CaptionCraft</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -149,7 +149,7 @@ textarea.fi{resize:vertical;min-height:88px;padding:9px 12px;line-height:1.6}
 .pw span{font-size:10px;font-weight:800;color:#fff;background:rgba(0,0,0,.78);padding:2px 8px;border-radius:4px;font-family:'Inter',sans-serif}
 .pc2 span{font-size:9px;font-weight:900;color:#fff;letter-spacing:.1em;text-transform:uppercase;font-family:'Inter',sans-serif}
 .pl span{font-size:16px;font-weight:900;color:#FFB300;font-family:'Inter',sans-serif;display:block;text-align:center;line-height:1}
-.po span{font-size:10px;font-weight:900;color:#fff;-webkit-text-stroke:1px #000;text-shadow:-1px -1px 0 #000,1px 1px 0 #000;font-family:'Inter',sans-serif}
+.po{background:rgba(255,255,255,.92);padding:3px 10px;border-radius:4px}.po span{font-size:10px;font-weight:900;color:#111;font-family:'Inter',sans-serif;letter-spacing:.01em}
 
 /* STYLE SETTINGS */
 .r2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
@@ -305,6 +305,9 @@ input[type=color].cc{width:34px;height:26px;padding:1px 2px;border:1px solid var
   .app{padding:16px 14px 70px}
 }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/umd/ffmpeg.js"></script>
+<script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
 </head>
 <body>
 <!-- SETTINGS DRAWER -->
@@ -332,7 +335,7 @@ input[type=color].cc{width:34px;height:26px;padding:1px 2px;border:1px solid var
       <button class="btn bd bsm" style="margin-top:8px;display:none" id="clearMBtn" onclick="clearModel()">Remove from device</button></div>
     <div>
       <div class="sdst">About</div>
-      <div class="sdr2"><div class="sdrl">Version</div><span class="sdba bok">v3.0</span></div>
+      <div class="sdr2"><div class="sdrl">Version</div><span class="sdba bok">1.0</span></div>
       <div class="sdr2"><div class="sdrl">Model</div><span class="sdba bok">Whisper base.en</span></div>
       <div class="sdr2">
         <div><div class="sdrl">Clear all data</div><div class="sdrs">API key, model, preferences</div></div>
@@ -385,7 +388,7 @@ input[type=color].cc{width:34px;height:26px;padding:1px 2px;border:1px solid var
   <div class="hdr">
     <div class="logo">
       <div class="lm"><svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
-      <span class="lt">CaptionCraft</span><span class="lv">v3</span></div>
+      <span class="lt">CaptionCraft</span></div>
     <div style="display:flex;gap:8px">
       <button class="btn bs bsm" onclick="openHelp()">
         <svg viewBox="0 0 24 24" style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -407,7 +410,7 @@ input[type=color].cc{width:34px;height:26px;padding:1px 2px;border:1px solid var
       <div class="ups">MP4 · MOV · up to 2GB</div></div>
     <div id="vpWrap" style="display:none">
       <div class="vp"><div class="vt"><video id="vpVid" muted playsinline></video></div>
-        <div class="vn" id="vpName"></div><div class="vd" id="vpDur"></div><button class="btn bd bsm" style="margin-top:10px;width:100%" onclick="removeVideo()">✕ Remove video and choose another</button></div></div>
+        <div class="vn" id="vpName"></div><div class="vd" id="vpDur"></div><button class="btn bd" style="margin-top:12px;display:block;width:fit-content;margin-left:auto;margin-right:auto;padding:8px 20px;font-size:12.5px" onclick="removeVideo()">✕ Remove video</button></div></div>
     <div id="s1next" style="display:none;margin-top:16px">
       <button class="btn bp bfw" onclick="goTo(2)">
         <svg viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
@@ -466,7 +469,10 @@ input[type=color].cc{width:34px;height:26px;padding:1px 2px;border:1px solid var
       <button class="btn bp bfw" id="transBtn" onclick="startTrans()">
         <svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
         Start transcription</button></div>
-    <div id="transDone" style="display:none;margin-top:12px"><div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px"><div style="display:flex;align-items:center;gap:10px"><div style="width:28px;height:28px;background:var(--ok-l);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px">✓</div><div><div style="font-size:13px;font-weight:600" id="doneLabel">Transcription complete</div><div style="font-size:11.5px;color:var(--ink3)" id="doneSubLabel">Tap to continue or re-transcribe if needed</div></div></div><button class="btn bs bsm" onclick="reTranscribe()">Re-transcribe</button></div></div>
+    <div id="transDone" style="display:none;margin-top:12px"><div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px"><div style="display:flex;align-items:center;gap:10px"><div style="width:28px;height:28px;background:var(--ok-l);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px">✓</div><div><div style="font-size:13px;font-weight:600" id="doneLabel">Transcription complete</div><div style="font-size:11.5px;color:var(--ink3)" id="doneSubLabel">Tap to continue or re-transcribe if needed</div></div></div><div style="display:flex;gap:8px;flex-shrink:0">
+      <button class="btn bs bsm" onclick="reTranscribe()">↺ Re-do</button>
+      <button class="btn bp bsm" onclick="goTo(3)">Continue →</button>
+    </div></div></div>
     <div id="transProg" style="display:none;margin-top:12px">
       <div class="pc"><div class="spin"></div>
         <div style="font-size:14px;font-weight:700" id="pTitle">Transcribing...</div>
@@ -495,7 +501,7 @@ input[type=color].cc{width:34px;height:26px;padding:1px 2px;border:1px solid var
         <div class="spv"><div class="pl" id="pvl"><span>ONE</span></div></div>
         <div class="sn">One Word</div><div class="sd2">Large karaoke style</div></div>
       <div class="scd" data-s="outline" onclick="pickSt(this)"><div class="sck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
-        <div class="spv" style="background:#555"><div class="po"><span>Caption text</span></div></div>
+        <div class="spv"><div class="po"><span>Caption text</span></div></div>
         <div class="sn">Outlined</div><div class="sd2">Bold outline, no pill</div></div></div>
     <div class="card" style="margin-top:12px">
       <div class="r2">
@@ -515,7 +521,19 @@ input[type=color].cc{width:34px;height:26px;padding:1px 2px;border:1px solid var
           <div class="sw" style="background:#EF4444" data-c="#EF4444" onclick="pickC(this,'#EF4444')"></div>
           <div class="sw" style="background:#F59E0B" data-c="#F59E0B" onclick="pickC(this,'#F59E0B')"></div>
           <div class="sw" style="background:#fff;border:1px solid #ccc" data-c="#FFFFFF" onclick="pickC(this,'#FFFFFF')"></div>
-          <input type="color" class="cc" id="cPicker" value="#FFB300" oninput="customC(this.value)"></div></div></div>
+          <input type="color" class="cc" id="cPicker" value="#FFB300" oninput="customC(this.value)"></div></div>
+      <div id="outlineColorSection" style="margin-top:12px;display:none">
+        <label class="fl">Outline color <span style="font-weight:400;color:var(--ink3)">(Outlined style only)</span></label>
+        <div class="csw">
+          <div class="sw sel" style="background:#000000" data-oc="#000000" onclick="pickOC(this,'#000000')"></div>
+          <div class="sw" style="background:#FFFFFF;border:1px solid #ccc" data-oc="#FFFFFF" onclick="pickOC(this,'#FFFFFF')"></div>
+          <div class="sw" style="background:#EF4444" data-oc="#EF4444" onclick="pickOC(this,'#EF4444')"></div>
+          <div class="sw" style="background:#6366F1" data-oc="#6366F1" onclick="pickOC(this,'#6366F1')"></div>
+          <div class="sw" style="background:#22C55E" data-oc="#22C55E" onclick="pickOC(this,'#22C55E')"></div>
+          <input type="color" class="cc" id="ocPicker" value="#000000" oninput="customOC(this.value)">
+        </div>
+        <div class="fh">Text color is set by Highlight color above. This controls the outline/border.</div>
+      </div></div>
     <div class="nr2"><button class="btn bg" onclick="goTo(2)">← Back</button>
       <button class="btn bp" style="flex:1" onclick="goTo(4)">Continue to editor →</button></div></div>
 
@@ -543,73 +561,92 @@ input[type=color].cc{width:34px;height:26px;padding:1px 2px;border:1px solid var
           <div class="psz" id="safeZ"></div>
           <div class="ph">Drag to reposition</div></div></div>
       <div class="pcs">
-        <div class="pst">Position: <strong id="posPct">—</strong> from top</div>
-        <div class="pst">Y offset: <strong id="posYV">—</strong></div>
-        <div class="pst">X position: <strong id="posXPct">50</strong>% from left</div>
-        <div style="margin-top:8px"><label class="fl">Y position (px from top)</label>
-          <input type="number" class="fi" id="posYI" value="250" min="0" oninput="setPosIn(this.value)"></div>
-        <div class="nt ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          <span>Keep captions at least 30px above the bottom edge. Phones crop unpredictably.</span></div>
-        <div class="cw" id="cropW">⚠ Too close to the bottom — move up to avoid trimming on smaller phones.</div></div></div>
+        <div style="font-size:11px;color:var(--ink3);margin-bottom:6px">
+          <strong style="color:var(--ink)">0, 0 = center of frame</strong> — same coordinate system as CapCut.
+          Drag the preview or type coordinates below.
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label class="fl" style="margin-bottom:5px">X position</label>
+            <input type="number" class="fi" id="posXcoord" value="0" oninput="setPosFromCoords()" placeholder="0">
+            <div style="font-size:10.5px;color:var(--ink3);margin-top:3px">neg = left &nbsp;·&nbsp; pos = right</div>
+          </div>
+          <div>
+            <label class="fl" style="margin-bottom:5px">Y position</label>
+            <input type="number" class="fi" id="posYcoord" value="-200" oninput="setPosFromCoords()" placeholder="-200">
+            <div style="font-size:10.5px;color:var(--ink3);margin-top:3px">neg = down &nbsp;·&nbsp; pos = up</div>
+          </div>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;align-self:center">Presets:</span>
+          <button class="btn bs bsm" onclick="applyPreset(0,-200)">Lower third</button>
+          <button class="btn bs bsm" onclick="applyPreset(0,0)">Center</button>
+          <button class="btn bs bsm" onclick="applyPreset(0,220)">Upper third</button>
+        </div>
+        <div class="nt ni" style="margin-top:10px">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span>Keep captions above the red zone to avoid phone crop trimming.</span>
+        </div>
+        <div class="cw" id="cropW">⚠ Too close to the bottom — move up.</div>
+      </div></div>
     <div class="nr2"><button class="btn bg" onclick="goTo(4)">← Back</button>
       <button class="btn bp" style="flex:1" onclick="goTo(6)">Continue to export →</button></div></div>
 
   <!-- STEP 6 -->
   <div class="sec" id="step6">
-    <div class="st">Export</div>
-    <div class="ss" id="s6sub">Download your caption file and burn it into your video.</div>
-    <div class="eh2">
-      <div class="ei"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
-      <div class="etl">Ready to export</div>
-      <div class="esu" id="expSum">—</div></div>
+    <div class="st">Burn &amp; Download</div>
+    <div class="ss">Everything happens right here — no scripts, no moving files, no Terminal.</div>
 
-    <div id="desktopBurn">
-      <div class="card" style="margin-top:14px">
-        <label class="fl">Output filename</label>
-        <div style="display:flex;gap:8px;align-items:center">
-          <input type="text" class="fi" id="outFilename" placeholder="my_reel" style="flex:1">
-          <span style="font-size:13px;color:var(--ink3);flex-shrink:0">_captioned.mp4</span></div>
-        <div class="fh">Name your output file. Spaces become underscores automatically.</div></div>
-      <div class="card" style="margin-top:10px">
-        <div style="text-align:center;margin-bottom:14px">
-          <div style="font-size:13px;font-weight:600;margin-bottom:3px">One click — everything you need</div>
-          <div style="font-size:12px;color:var(--ink3)">Downloads a ZIP containing your caption file and the right burn script for your device. Unzip, double-click the script, done.</div></div>
-        <button class="btn bp bfw" id="zipBtn" onclick="dlZip()">
-          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Download CaptionCraft Package</button>
-        <div class="nt ni" style="margin-top:12px">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          <span id="osHint">Detecting your OS...</span></div></div>
-      <div class="dor"><span>What happens after you download</span></div>
-      <div class="sl2">
-        <div class="sli"><div class="sln">1</div><div class="slt"><strong>Unzip</strong> the downloaded package and move the folder to the same location as your video file.</div></div>
-        <div class="sli"><div class="sln">2</div><div class="slt"><strong>Double-click</strong> the burn script inside. It finds your video automatically, installs ffmpeg silently if needed, and produces your captioned video.</div></div>
-        <div class="sli"><div class="sln">3</div><div class="slt"><strong>Upload</strong> the output file to Instagram, Facebook, and YouTube Shorts — same file, no caption editing on any platform.</div></div></div></div>
+    <div class="card">
+      <label class="fl">Output filename</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" class="fi" id="outFilename" placeholder="my_reel" style="flex:1" oninput="updateOutPreview()">
+        <span style="font-size:13px;color:var(--ink3);flex-shrink:0">_captioned.mp4</span>
+      </div>
+      <div class="fh">Name your finished video.</div>
+    </div>
 
-    <!-- MOBILE EXPORT (shown on mobile instead) -->
-    <div id="mobileBurn" style="display:none">
-      <div class="dor"><span>Complete on your computer</span></div>
-      <div class="mob-export">
-        <div class="mob-step"><div class="mob-num">1</div><div class="mob-body">
-          <div class="mob-title">Download the SRT file above</div>
-          <div class="mob-desc">Tap the Download button. The SRT file contains all your caption text and timing.</div></div></div>
-        <div class="mob-step"><div class="mob-num">2</div><div class="mob-body">
-          <div class="mob-title">Email the SRT file to yourself</div>
-          <div class="mob-desc">Open your email, attach the SRT file, and send it to your computer email address.</div></div></div>
-        <div class="mob-step"><div class="mob-num">3</div><div class="mob-body">
-          <div class="mob-title">Open CaptionCraft on your computer</div>
-          <div class="mob-desc">Re-upload the same video, import the SRT at Step 4, and use the burn script to produce the final captioned video.</div></div></div>
-        <div class="mob-step"><div class="mob-num">4</div><div class="mob-body">
-          <div class="mob-title">Post the same file everywhere</div>
-          <div class="mob-desc">Upload <strong>output_captioned.mp4</strong> to Instagram, Facebook, and YouTube Shorts — no per-platform caption editing needed.</div></div></div></div>
-      <div class="nt ni" style="margin-top:14px">
+    <div class="card" style="margin-top:10px;text-align:center">
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px">Ready to burn captions into your video</div>
+      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px" id="expSum">—</div>
+      <button class="btn bp bfw" id="burnBtn" onclick="startBurn()" style="max-width:320px;margin:0 auto">
+        <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Burn Captions into Video
+      </button>
+      <div class="nt ni" style="margin-top:12px;text-align:left">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <span>The final burn step requires a computer because it uses ffmpeg to process the video — this can't run in a mobile browser.</span></div></div>
+        <span>Runs entirely in your browser. Nothing is uploaded anywhere. First use loads ~30MB of processing tools — cached permanently after that.</span>
+      </div>
+    </div>
 
-    <div class="nr2"><button class="btn bg" onclick="goTo(5)">← Back</button>
-      <button class="btn bs" style="flex:1" onclick="restart()">Process another video</button></div></div>
-</div>
-<div class="toast" id="toast"></div>
+    <div id="burnProgress" style="display:none;margin-top:10px">
+      <div class="pc">
+        <div class="spin"></div>
+        <div style="font-size:14px;font-weight:700" id="burnTitle">Loading video processor...</div>
+        <div style="font-size:12px;color:var(--ink3);margin-top:3px" id="burnSub">First use downloads ~30MB once, then caches permanently</div>
+        <div class="pbt" style="margin-top:12px"><div class="pbf" id="burnFill" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <div id="burnDone" style="display:none;margin-top:10px">
+      <div class="eh2">
+        <div class="ei"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+        <div class="etl">Done!</div>
+        <div class="esu">Upload this file to Instagram, Facebook, and YouTube Shorts — same file, no editing needed.</div>
+        <button class="btn bp bfw" id="dlFinalBtn" style="max-width:280px;margin:8px auto 0">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download <span id="dlFinalName">captioned.mp4</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="nr2" style="margin-top:16px">
+      <button class="btn bg" onclick="goTo(5)">← Back</button>
+      <button class="btn bs" style="flex:1" onclick="restart()">Process another video</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
 <script>
 // ── CONFIG (update MODEL_CONFIG_URL when you have a domain) ──
 const MODEL_CONFIG_URL = null; // e.g. 'https://captioncraftai.com/config.json'
@@ -792,7 +829,7 @@ async function transAPI(){
 
 async function transBrowser(){
   // Whisper WASM integration — model loaded from IndexedDB
-  // Full wasm worker wired in v3.1; using voice-script path for v3.0
+  // Full wasm worker wired in v3.1; using voice-script path for v1.0
   prog('Loading Whisper engine...',15);await sleep(500);
   prog('Extracting audio...',30);await sleep(800);
   prog('Running speech recognition...',55);await sleep(1500);
@@ -817,11 +854,25 @@ function buildCaps(words){
 function prog(title,pct){document.getElementById('pTitle').textContent=title;document.getElementById('pFill').style.width=pct+'%';}
 
 // ── STYLE ──
-function pickSt(card){document.querySelectorAll('.scd').forEach(c=>c.classList.remove('sel'));card.classList.add('sel');style=card.dataset.s;}
+function pickSt(card){
+  document.querySelectorAll('.scd').forEach(c=>c.classList.remove('sel'));
+  card.classList.add('sel');
+  style=card.dataset.s;
+  const ocs=document.getElementById('outlineColorSection');
+  if(ocs)ocs.style.display=style==='outline'?'block':'none';
+}
 function pickWpl(btn){document.querySelectorAll('.wb').forEach(b=>b.classList.remove('sel'));btn.classList.add('sel');wpl=parseInt(btn.dataset.w);}
 function setFs(v){fontSize=parseInt(v);document.getElementById('fsLbl').textContent=v;document.getElementById('fsV').textContent=v;}
 function pickC(el,c){document.querySelectorAll('.sw').forEach(s=>s.classList.remove('sel'));el.classList.add('sel');hlColor=c;document.getElementById('cPicker').value=c;}
-function customC(c){hlColor=c;document.querySelectorAll('.sw').forEach(s=>s.classList.remove('sel'));}
+function customC(c){hlColor=c;document.querySelectorAll('.sw:not([data-oc])').forEach(s=>s.classList.remove('sel'));}
+let outlineColor='#000000';
+function pickOC(el,c){
+  document.querySelectorAll('[data-oc]').forEach(s=>s.classList.remove('sel'));
+  el.classList.add('sel');
+  outlineColor=c;
+  document.getElementById('ocPicker').value=c;
+}
+function customOC(c){outlineColor=c;document.querySelectorAll('[data-oc]').forEach(s=>s.classList.remove('sel'));}
 setInterval(()=>{const t=Math.floor(Date.now()/700)%3;document.querySelectorAll('#pva span,#pvg span').forEach((s,i)=>s.classList.toggle('a',i===t));const pl=document.querySelector('#pvl span');if(pl)pl.textContent=['ONE','WORD','AT'][t];},700);
 
 // ── EDITOR ──
@@ -879,7 +930,7 @@ function capPreview(text,st,fs,color,scale){
     case'white':return`<span style="font-family:Inter,sans-serif;font-size:${s};font-weight:800;color:#fff;background:rgba(0,0,0,.78);padding:2px 8px;border-radius:4px">${text}</span>`;
     case'caps':return`<span style="font-family:Inter,sans-serif;font-size:${s};font-weight:900;color:#fff;letter-spacing:.08em;text-transform:uppercase">${text}</span>`;
     case'large':return`<span style="font-family:Inter,sans-serif;font-size:${Math.round(fs*scale)}px;font-weight:900;color:${color}">${ws[0]||text}</span>`;
-    case'outline':return`<span style="font-family:Inter,sans-serif;font-size:${s};font-weight:900;color:#fff;-webkit-text-stroke:1px #000;text-shadow:-1px -1px 0 #000,1px 1px 0 #000">${text}</span>`;
+    case'outline':return`<span style="font-family:Inter,sans-serif;font-size:${s};font-weight:800;color:${hlColor||'#111'};background:rgba(255,255,255,.92);padding:2px 8px;border-radius:4px;-webkit-text-stroke:1.5px ${outlineColor||'#000'};">${text}</span>`;
     default:return`<span style="color:#fff;font-size:${s}">${text}</span>`;
   }
 }
@@ -1078,22 +1129,119 @@ window._styleAnim = setInterval(()=>{
 // ── FIX 4: Strip placeholder from transcription ──
 // Override transBrowser to never use placeholder
 transBrowser = async function(){
-  prog('Loading Whisper engine...',15); await sleep(500);
-  prog('Extracting audio...',30); await sleep(800);
-  prog('Running speech recognition...',55); await sleep(1500);
-  prog('Aligning timestamps...',80); await sleep(600);
-  const sc=document.getElementById('scriptInp').value.trim();
-  if(!sc){
-    // No script and no real WASM yet — show clear error
-    document.getElementById('transAct').style.display='block';
-    document.getElementById('transProg').style.display='none';
-    document.getElementById('pFill').style.width='0%';
-    showToast('Paste your voice script above, or use the OpenAI API engine for automatic transcription');
-    return;
+  prog('Loading Whisper engine...', 5);
+  document.getElementById('pSub').textContent = 'Setting up — first use downloads ~40MB once';
+  try {
+    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+    env.allowLocalModels = false;
+    env.useBrowserCache = true;
+
+    const transcriber = await pipeline(
+      'automatic-speech-recognition',
+      'Xenova/whisper-base.en',
+      {
+        progress_callback: (p) => {
+          if (p.status === 'downloading') {
+            const pct = p.progress ? Math.round(p.progress) : 0;
+            const loaded = p.loaded ? (p.loaded/1024/1024).toFixed(0) : '?';
+            const total = p.total ? (p.total/1024/1024).toFixed(0) : '?';
+            prog('Downloading model... ' + pct + '%', 15 + Math.round(pct * 0.4));
+            document.getElementById('pSub').textContent = loaded + 'MB of ' + total + 'MB — cached after this';
+          }
+          if (p.status === 'loading') {
+            prog('Loading model...', 58);
+            document.getElementById('pSub').textContent = 'Almost ready...';
+          }
+        }
+      }
+    );
+
+    prog('Extracting audio...', 63);
+    document.getElementById('pSub').textContent = 'Reading audio from your video...';
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    const arrayBuf = await vFile.arrayBuffer();
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
+    const channelData = audioBuffer.getChannelData(0);
+    const float32Audio = new Float32Array(channelData.length);
+    for (let i = 0; i < channelData.length; i++) float32Audio[i] = channelData[i];
+    audioCtx.close();
+
+    prog('Transcribing...', 72);
+    document.getElementById('pSub').textContent = 'Takes 30-90 seconds for a 60s video...';
+
+    const sc = document.getElementById('scriptInp').value.trim();
+    // Find first non-silent frame to avoid silence errors
+    prog('Analyzing audio...', 68);
+    let audioStart = 0;
+    const silenceThreshold = 0.005;
+    const sampleRate = 16000;
+    for (let i = 0; i < Math.min(float32Audio.length, sampleRate * 30); i++) {
+      if (Math.abs(float32Audio[i]) > silenceThreshold) {
+        audioStart = Math.max(0, i - sampleRate); // 1s before first sound
+        break;
+      }
+    }
+
+    // Trim leading silence
+    const trimmedAudio = audioStart > 0 ? float32Audio.slice(audioStart) : float32Audio;
+    const trimOffsetSeconds = audioStart / sampleRate;
+
+    prog('Transcribing full video...', 72);
+    document.getElementById('pSub').textContent = 'Transcribing... ' + Math.round(trimmedAudio.length / sampleRate) + 's of audio';
+
+    // Use full video length as chunk to avoid missing content
+    const videoDurSecs = Math.ceil(trimmedAudio.length / sampleRate);
+    const chunkLen = Math.min(Math.max(videoDurSecs, 30), 300); // 30s min, 5min max
+
+    const result = await transcriber(trimmedAudio, {
+      language: 'english',
+      task: 'transcribe',
+      return_timestamps: 'word',
+      chunk_length_s: chunkLen,
+      stride_length_s: 0,
+      ...(sc ? { initial_prompt: sc } : {})
+    });
+
+    prog('Building captions...', 93);
+    document.getElementById('pSub').textContent = 'Almost done...';
+
+    let words = [];
+    if (result.chunks && result.chunks.length > 0) {
+      result.chunks.forEach(chunk => {
+        const word = chunk.text.trim();
+        if (word && chunk.timestamp) {
+          // Add back the trim offset so timestamps align with original video
+          words.push({
+            word,
+            start: (chunk.timestamp[0] || 0) + trimOffsetSeconds,
+            end: (chunk.timestamp[1] || (chunk.timestamp[0] + 0.3)) + trimOffsetSeconds
+          });
+        }
+      });
+    }
+    if (words.length === 0 && result.text) {
+      const rawWords = result.text.trim().split(/\s+/).filter(Boolean);
+      const dur = vDur || 30;
+      words = rawWords.map((w, i) => ({
+        word: w,
+        start: trimOffsetSeconds + (i / rawWords.length) * dur,
+        end: trimOffsetSeconds + ((i + 1) / rawWords.length) * dur
+      }));
+    }
+    if (words.length === 0) throw new Error('No speech detected in video. If your video starts with silence, try trimming it first or paste your script in the voice script field.');
+
+    buildCaps(words);
+    prog('Done!', 100);
+
+  } catch(e) {
+    console.error('Whisper error:', e);
+    showToast('Transcription failed: ' + e.message);
+    document.getElementById('transAct').style.display = 'block';
+    document.getElementById('transProg').style.display = 'none';
+    document.getElementById('pFill').style.width = '0%';
+    document.getElementById('pFill').classList.remove('ok');
   }
-  const words=sc.split(/\s+/).filter(Boolean).map((w,i)=>({word:w,start:i*0.38,end:(i+1)*0.38-0.05}));
-  buildCaps(words);
-  prog('Done!',100);
 };
 
 // ── FIX 5: Horizontal drag on position tool ──
@@ -1158,6 +1306,7 @@ renderExport=function(){
     const labels={mac:'Mac detected — package includes burn-mac.sh',windows:'Windows detected — package includes burn-windows.bat',linux:'Linux detected — package includes burn-linux.sh',unknown:'Package includes scripts for Mac and Windows'};
     hint.textContent=labels[os]||labels.unknown;
   }
+  updateOutPreview();
   if(!document.getElementById('outFilename').value){
     const base=vFile?.name.replace(/\.[^.]+$/,'')||'my_reel';
     document.getElementById('outFilename').value=base;
@@ -1165,32 +1314,51 @@ renderExport=function(){
 };
 
 async function dlZip(){
-  const os=detectOS();
-  const outName=getOutFilename();
-  const srt=buildSRT();
-  const videoName=vFile?.name||'your_video.mp4';
-  const st=ffSt();
-
-  // Build the right script(s)
-  const macScript=buildMacScript(videoName,outName,st);
-  const winScript=buildWinScript(videoName,outName,st);
-
-  // Use JSZip if available, otherwise fall back to separate downloads
-  // Since we can't import JSZip easily in a standalone HTML, we use a manual zip approach
-  // For now: detect OS and download the right script + SRT in sequence
-  const srtBlob=new Blob([srt],{type:'text/plain'});
-  const srtA=document.createElement('a');srtA.href=URL.createObjectURL(srtBlob);srtA.download='captions.srt';srtA.click();
-
-  await sleep(400);
-
-  if(os==='windows'){
-    const b=new Blob([winScript],{type:'text/plain'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='burn-captioncraft.bat';a.click();
-    showToast('Downloaded captions.srt + burn-captioncraft.bat — put both in your video folder and double-click the .bat file');
-  } else {
-    const b=new Blob([macScript],{type:'text/plain'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='burn-captioncraft.sh';a.click();
-    showToast('Downloaded captions.srt + burn-captioncraft.sh — put both in your video folder and double-click the .sh file');
+  const outName = getOutFilename();
+  const srt = buildSRT();
+  const videoName = vFile ? vFile.name : 'your_video.mp4';
+  const st = ffSt();
+  const btn = document.getElementById('zipBtn');
+  btn.disabled = true;
+  btn.textContent = 'Creating package...';
+  try {
+    const zip = new JSZip();
+    zip.file('captions.srt', srt);
+    zip.file('burn-mac.sh', buildMacScript(videoName, outName, st));
+    zip.file('burn-windows.bat', buildWinScript(videoName, outName, st));
+    zip.file('README.txt', [
+      'CAPTIONCRAFT PACKAGE',
+      '====================',
+      '',
+      'Files in this ZIP:',
+      '  captions.srt        your caption file with timing',
+      '  burn-mac.sh         burn script for Mac',
+      '  burn-windows.bat    burn script for Windows',
+      '',
+      'HOW TO USE:',
+      '1. Unzip this folder.',
+      '2. Move ALL files into the SAME folder as your video file (' + videoName + ').',
+      '3. Mac:     Double-click burn-mac.sh',
+      '   Windows: Double-click burn-windows.bat',
+      '4. Your captioned video will be saved as: ' + outName + '_captioned.mp4',
+      '5. Upload that file to Instagram, Facebook, and YouTube Shorts.',
+      '   Same file. No caption editing on any platform.',
+      '',
+      'NOTE: The script downloads ffmpeg automatically the first time (~90MB).',
+      'After that it runs offline.',
+    ].join('\n'));
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'captioncraft-package.zip';
+    a.click();
+    showToast('captioncraft-package.zip downloaded — unzip, move files next to your video, double-click the burn script');
+  } catch(e) {
+    showToast('Download failed: ' + e.message);
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download CaptionCraft Package';
   }
 }
 
@@ -1263,6 +1431,207 @@ echo.
 echo Done! Saved as: %OUTPUT%
 echo Upload to Instagram, Facebook, and YouTube Shorts - same file, no editing needed.
 pause`;
+}
+
+
+// ── COORDINATE SYSTEM: 0,0 = center ──
+// Internal state: xCoord, yCoord in pixels from center
+// xCoord: negative = left, positive = right
+// yCoord: negative = down, positive = up (matching CapCut)
+let xCoord = 0;
+let yCoord = -200; // default lower third
+
+function coordsToPixels(xc, yc, w, h) {
+  // Convert center-origin coords to top-left pixel coords
+  return {
+    px: (w / 2) + xc,
+    py: (h / 2) - yc  // flip Y: positive yCoord = up = smaller py
+  };
+}
+
+function pixelsToCoords(px, py, w, h) {
+  return {
+    xc: Math.round(px - w / 2),
+    yc: Math.round(h / 2 - py)
+  };
+}
+
+function setPosFromCoords() {
+  const xc = parseInt(document.getElementById('posXcoord').value) || 0;
+  const yc = parseInt(document.getElementById('posYcoord').value) || 0;
+  xCoord = xc;
+  yCoord = yc;
+  const px = coordsToPixels(xc, yc, vW, vH);
+  xPos = (px.px / vW) * 100;
+  yPos = Math.max(20, Math.min(vH - 20, px.py));
+  renderPos();
+}
+
+function applyPreset(xc, yc) {
+  xCoord = xc;
+  yCoord = yc;
+  document.getElementById('posXcoord').value = xc;
+  document.getElementById('posYcoord').value = yc;
+  setPosFromCoords();
+}
+
+// Override renderPos to sync coord inputs from drag
+const _origRenderPos2 = renderPos;
+renderPos = function() {
+  _origRenderPos2();
+  // Sync coordinate inputs from current xPos/yPos
+  const px = (xPos / 100) * vW;
+  const coords = pixelsToCoords(px, yPos, vW, vH);
+  const xi = document.getElementById('posXcoord');
+  const yi = document.getElementById('posYcoord');
+  if (xi && document.activeElement !== xi) xi.value = coords.xc;
+  if (yi && document.activeElement !== yi) yi.value = coords.yc;
+  xCoord = coords.xc;
+  yCoord = coords.yc;
+};
+
+// ── FFMPEG.WASM BURN ENGINE ──
+let ffmpegLoaded = false;
+let ffmpegInstance = null;
+
+async function loadFFmpeg() {
+  if (ffmpegLoaded) return ffmpegInstance;
+  const { FFmpeg } = FFmpegWASM;
+  const { fetchFile, toBlobURL } = FFmpegUtil;
+  const ff = new FFmpeg();
+  ff.on('log', ({ message }) => console.log('[ffmpeg]', message));
+  ff.on('progress', ({ progress }) => {
+    const pct = Math.round(progress * 100);
+    document.getElementById('burnFill').style.width = Math.max(40, pct) + '%';
+    document.getElementById('burnSub').textContent = 'Burning captions... ' + pct + '%';
+  });
+  const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+  await ff.load({
+    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+  });
+  ffmpegLoaded = true;
+  ffmpegInstance = ff;
+  return ff;
+}
+
+async function startBurn() {
+  if (!vFile) { showToast('No video loaded — go back to step 1'); return; }
+  if (!captions.length) { showToast('No captions — go back to step 2'); return; }
+
+  const burnBtn = document.getElementById('burnBtn');
+  burnBtn.disabled = true;
+  document.getElementById('burnProgress').style.display = 'block';
+  document.getElementById('burnDone').style.display = 'none';
+
+  setBurnProg('Loading video processor...', 5);
+  document.getElementById('burnSub').textContent = 'First use downloads ~30MB once, then caches permanently';
+
+  try {
+    const { fetchFile } = FFmpegUtil;
+    const ff = await loadFFmpeg();
+
+    setBurnProg('Loading your video...', 20);
+    const videoData = await fetchFile(vFile);
+    await ff.writeFile('input.mp4', videoData);
+
+    setBurnProg('Writing captions...', 30);
+    const srt = buildSRT();
+    const enc = new TextEncoder();
+    await ff.writeFile('captions.srt', enc.encode(srt));
+
+    setBurnProg('Burning captions into video...', 40);
+
+    // Build ASS/subtitle filter with style
+    const mv = Math.round(vH - yPos);
+    const mx = Math.round((xPos / 100) * vW - vW / 2);
+    const styleStr = buildFFmpegStyle(mv, mx);
+
+    const outName = getOutFilename() + '_captioned.mp4';
+
+    // Use subtitle filter — stream copy video, re-encode only if needed
+    const ret = await ff.exec([
+      '-i', 'input.mp4',
+      '-vf', `subtitles=captions.srt:force_style='${styleStr}'`,
+      '-c:a', 'copy',
+      '-preset', 'ultrafast',
+      outName
+    ]);
+
+    setBurnProg('Finalizing...', 95);
+
+    const data = await ff.readFile(outName);
+    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    const url = URL.createObjectURL(blob);
+
+    // Wire download button
+    const dlBtn = document.getElementById('dlFinalBtn');
+    dlBtn.onclick = () => {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = outName;
+      a.click();
+    };
+    document.getElementById('dlFinalName').textContent = outName;
+
+    // Cleanup ffmpeg files
+    await ff.deleteFile('input.mp4');
+    await ff.deleteFile('captions.srt');
+    await ff.deleteFile(outName);
+
+    setBurnProg('Done!', 100);
+    document.getElementById('burnFill').classList.add('ok');
+    document.getElementById('burnProgress').style.display = 'none';
+    document.getElementById('burnDone').style.display = 'block';
+
+    showToast('Captions burned successfully!');
+
+  } catch(e) {
+    console.error('ffmpeg error:', e);
+    showToast('Burn failed: ' + e.message + '. Try refreshing and running again.');
+    document.getElementById('burnProgress').style.display = 'none';
+    burnBtn.disabled = false;
+  }
+}
+
+function setBurnProg(title, pct) {
+  document.getElementById('burnTitle').textContent = title;
+  document.getElementById('burnFill').style.width = pct + '%';
+}
+
+function buildFFmpegStyle(marginV, marginH) {
+  const colors = {
+    amber: '&H00B3FF',   // amber in BGR hex
+    green: '&H76C55E',   // green
+    white: '&HFFFFFF',
+    caps:  '&HFFFFFF',
+    large: '&H00B3FF',
+    outline: '&HFFFFFF'
+  };
+  const primaryColor = colors[style] || '&HFFFFFF';
+  const fs = Math.round(fontSize * 0.85); // scale for video pixels vs preview pixels
+  const base = `FontName=Inter,FontSize=${fs},PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=3,Alignment=2,MarginV=${marginV},Bold=1`;
+  switch(style) {
+    case 'white': return `FontName=Inter,FontSize=${fs},PrimaryColour=&HFFFFFF,BackColour=&H80000000,BorderStyle=4,Outline=0,Alignment=2,MarginV=${marginV}`;
+    case 'caps':  return `FontName=Inter,FontSize=${Math.round(fs*0.85)},PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=3,Alignment=2,MarginV=${marginV},Bold=1`;
+    case 'outline': {
+      const oc = outlineColor || '#000000';
+      const ocBGR = '&H' + oc.slice(5,7) + oc.slice(3,5) + oc.slice(1,3);
+      const tc = hlColor || '#FFFFFF';
+      const tcBGR = '&H' + tc.slice(5,7) + tc.slice(3,5) + tc.slice(1,3);
+      return `FontName=Inter,FontSize=${fs},PrimaryColour=${tcBGR},OutlineColour=${ocBGR},BackColour=&H80FFFFFF,BorderStyle=4,Outline=3,Alignment=2,MarginV=${marginV},Bold=1`;
+    }
+    default: return base;
+  }
+}
+
+// Keep ZIP download as fallback (accessible from help/settings)
+function dlSRTOnly() {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buildSRT()], {type:'text/plain'}));
+  a.download = 'captions.srt';
+  a.click();
+  showToast('captions.srt downloaded');
 }
 
 </script>
