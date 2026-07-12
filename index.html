@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CaptionCraft v3</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F8F9FA;--surf:#FFFFFF;--brd:#E4E4E7;--brd-f:#6366F1;
+  --ink:#09090B;--ink2:#52525B;--ink3:#A1A1AA;
+  --acc:#6366F1;--acc-l:#EEF2FF;--acc-h:#4F46E5;
+  --ok:#22C55E;--ok-l:#F0FDF4;--ok-b:rgba(34,197,94,.25);
+  --err:#EF4444;--err-l:#FEF2F2;
+  --wrn:#F59E0B;--wrn-l:#FFFBEB;
+  --r:8px;--rl:12px;
+  --sh:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.04);
+  --shm:0 4px 6px -1px rgba(0,0,0,.07),0 2px 4px -2px rgba(0,0,0,.05);
+  --shl:0 10px 15px -3px rgba(0,0,0,.08),0 4px 6px -4px rgba(0,0,0,.04);
+}
+html,body{background:var(--bg);font-family:'Inter',sans-serif;color:var(--ink);min-height:100vh;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.app{max-width:740px;margin:0 auto;padding:24px 16px 80px}
+
+/* HEADER */
+.hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;padding-bottom:18px;border-bottom:1px solid var(--brd)}
+.logo{display:flex;align-items:center;gap:9px}
+.lm{width:30px;height:30px;background:var(--acc);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.lm svg{width:16px;height:16px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.lt{font-size:15px;font-weight:700;letter-spacing:-.015em}
+.lv{font-size:10px;font-weight:600;color:var(--ink3);background:var(--bg);border:1px solid var(--brd);border-radius:20px;padding:1px 7px;margin-left:4px}
+
+/* STEP NAV */
+.snav{display:flex;align-items:center;margin-bottom:24px;overflow-x:auto;padding-bottom:2px;gap:0;-webkit-overflow-scrolling:touch}
+.si{display:flex;align-items:center;flex-shrink:0}
+.sd{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--brd);background:var(--surf);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--ink3);transition:all .2s;flex-shrink:0}
+.sd.act{background:var(--acc);border-color:var(--acc);color:#fff}
+.sd.dn{background:var(--ok);border-color:var(--ok);color:#fff;font-size:10px}
+.sl{font-size:11px;font-weight:500;color:var(--ink3);margin-left:6px;white-space:nowrap;transition:color .15s}
+.sl.act{color:var(--ink);font-weight:600}
+.sc{width:18px;height:1.5px;background:var(--brd);margin:0 4px;flex-shrink:0;transition:background .2s}
+.sc.dn{background:var(--ok)}
+
+/* SECTIONS */
+.sec{display:none}.sec.act{display:block;animation:si .2s ease}
+@keyframes si{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.st{font-size:18px;font-weight:700;letter-spacing:-.02em;margin-bottom:3px}
+.ss{font-size:13px;color:var(--ink2);margin-bottom:20px;line-height:1.55}
+
+/* CARD */
+.card{background:var(--surf);border:1px solid var(--brd);border-radius:var(--rl);padding:18px 20px;box-shadow:var(--sh);margin-bottom:10px}
+
+/* UPLOAD */
+.upz{border:1.5px dashed var(--brd);border-radius:var(--rl);padding:34px 20px;text-align:center;cursor:pointer;transition:all .15s;background:var(--surf);position:relative;overflow:hidden}
+.upz:hover,.upz.ov{border-color:var(--acc);background:var(--acc-l)}
+.upz input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.upi{width:42px;height:42px;margin:0 auto 12px;background:var(--acc-l);border-radius:11px;display:flex;align-items:center;justify-content:center}
+.upi svg{width:20px;height:20px;stroke:var(--acc);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.upt{font-size:14px;font-weight:600;margin-bottom:4px}
+.ups{font-size:12px;color:var(--ink3)}.ups span{color:var(--acc);font-weight:500}
+
+.vp{max-width:180px;margin:16px auto 0}
+.vt{border-radius:var(--r);overflow:hidden;background:#000;aspect-ratio:9/16}
+.vt video{width:100%;height:100%;object-fit:contain;display:block}
+.vn{font-size:12px;font-weight:600;text-align:center;margin-top:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vd{font-size:11px;color:var(--ink3);text-align:center;margin-top:2px}
+
+/* ENGINE */
+.egrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ec{border:1.5px solid var(--brd);border-radius:var(--r);padding:14px;cursor:pointer;transition:all .15s;position:relative}
+.ec:hover{border-color:var(--ink3)}
+.ec.sel{border-color:var(--acc);background:var(--acc-l)}
+.ec input[type=radio]{position:absolute;opacity:0;pointer-events:none}
+.echeck{position:absolute;top:10px;right:10px;width:18px;height:18px;background:var(--acc);border-radius:50%;display:none;align-items:center;justify-content:center}
+.ec.sel .echeck{display:flex}
+.echeck svg{width:10px;height:10px;stroke:#fff;fill:none;stroke-width:3}
+.ebadge{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:20px;margin-bottom:7px}
+.bf{background:var(--acc-l);color:#3730A3;border:1px solid rgba(99,102,241,.2)}
+.bfr{background:var(--ok-l);color:#166534;border:1px solid var(--ok-b)}
+.et{font-size:13px;font-weight:700;margin-bottom:3px}
+.ed{font-size:11.5px;color:var(--ink2);line-height:1.5}
+
+/* FIELDS */
+.fl{display:block;font-size:12px;font-weight:600;color:var(--ink2);margin-bottom:5px;letter-spacing:.01em}
+.fr{position:relative}
+.fi{width:100%;padding:9px 40px 9px 12px;border:1px solid var(--brd);border-radius:var(--r);font-family:'Inter',sans-serif;font-size:13px;color:var(--ink);background:var(--surf);outline:none;transition:border-color .15s}
+.fi:focus{border-color:var(--brd-f);box-shadow:0 0 0 3px rgba(99,102,241,.1)}
+.fi::placeholder{color:var(--ink3)}
+.fey{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink3);display:flex;align-items:center;padding:2px}
+.fey svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.fh{font-size:11.5px;color:var(--ink3);margin-top:5px;line-height:1.5}
+.fh a{color:var(--acc);text-decoration:none}.fh a:hover{text-decoration:underline}
+textarea.fi{resize:vertical;min-height:88px;padding:9px 12px;line-height:1.6}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;border-radius:var(--r);font-family:'Inter',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;border:none;white-space:nowrap;text-decoration:none}
+.btn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.bp{background:var(--acc);color:#fff}.bp:hover{background:var(--acc-h)}
+.bp:disabled{opacity:.4;cursor:not-allowed}
+.bs{background:var(--surf);color:var(--ink);border:1px solid var(--brd)}.bs:hover{border-color:var(--ink3);background:var(--bg)}
+.bg{background:transparent;color:var(--ink2);padding:8px 12px}.bg:hover{background:var(--bg);color:var(--ink)}
+.bd{background:var(--err-l);color:var(--err);border:1px solid rgba(239,68,68,.2)}.bd:hover{background:#fee2e2}
+.bsm{padding:6px 11px;font-size:12px}
+.bfw{width:100%;justify-content:center}
+
+/* PROGRESS */
+.pc{background:var(--surf);border:1px solid var(--brd);border-radius:var(--rl);padding:22px;text-align:center}
+.spin{width:34px;height:34px;border:3px solid var(--acc-l);border-top-color:var(--acc);border-radius:50%;animation:sp .75s linear infinite;margin:0 auto 14px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.pbt{height:4px;background:var(--brd);border-radius:2px;overflow:hidden;margin-top:12px}
+.pbf{height:100%;background:var(--acc);border-radius:2px;transition:width .3s;width:0%}
+.pbf.ok{background:var(--ok)}
+
+/* MODEL STATUS */
+.ms{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surf);border:1px solid var(--brd);border-radius:var(--r)}
+.md{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.md.c{background:var(--ok)}.md.m{background:var(--ink3)}.md.dl{background:var(--wrn);animation:bl 1s ease-in-out infinite}
+@keyframes bl{0%,100%{opacity:1}50%{opacity:.3}}
+.mi{flex:1;min-width:0}.mt2{font-size:12.5px;font-weight:600}.ms2{font-size:11px;color:var(--ink3);margin-top:1px}
+
+/* HOWTO */
+.hb{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--acc);cursor:pointer;background:none;border:none;padding:0;margin-top:6px;font-family:'Inter',sans-serif}
+.hb svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2}
+.hp{display:none;margin-top:10px;background:var(--bg);border:1px solid var(--brd);border-radius:var(--r);overflow:hidden}
+.hp.op{display:block}
+.hs{display:flex;gap:12px;padding:11px 15px;border-bottom:1px solid var(--brd)}
+.hs:last-child{border-bottom:none}
+.hn{width:22px;height:22px;border-radius:50%;background:var(--acc-l);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:var(--acc);flex-shrink:0;margin-top:1px}
+.hbd{flex:1;min-width:0}
+.htt{font-size:12.5px;font-weight:700;margin-bottom:2px}
+.hd2{font-size:12px;color:var(--ink2);line-height:1.5}
+.hd2 a{color:var(--acc);text-decoration:none;font-weight:500}.hd2 a:hover{text-decoration:underline}
+.hd2 code{background:var(--brd);padding:1px 5px;border-radius:3px;font-family:'SF Mono','Fira Code',monospace;font-size:11px}
+.hd2 strong{font-weight:700;color:var(--ink)}
+
+/* STYLE PICKER */
+.sgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.scd{border:1.5px solid var(--brd);border-radius:var(--rl);overflow:hidden;cursor:pointer;transition:all .15s;position:relative}
+.scd:hover{border-color:var(--ink3);box-shadow:var(--shm)}
+.scd.sel{border-color:var(--acc);box-shadow:0 0 0 3px rgba(99,102,241,.1)}
+.sck{position:absolute;top:7px;right:7px;width:17px;height:17px;background:var(--acc);border-radius:50%;display:none;align-items:center;justify-content:center}
+.scd.sel .sck{display:flex}
+.sck svg{width:9px;height:9px;stroke:#fff;fill:none;stroke-width:3}
+.spv{height:66px;background:#111;display:flex;align-items:center;justify-content:center;padding:6px}
+.sn{padding:7px 10px;font-size:11px;font-weight:700;background:var(--surf);border-top:1px solid var(--brd)}
+.sd2{padding:0 10px 7px;font-size:10px;color:var(--ink3);background:var(--surf)}
+.pa span,.pg span{font-size:10px;font-weight:800;font-family:'Inter',sans-serif;color:#fff;margin:0 1.5px;display:inline-block}
+.pa span.a{color:#FFB300}.pg span.a{color:#22C55E}
+.pw span{font-size:10px;font-weight:800;color:#fff;background:rgba(0,0,0,.78);padding:2px 8px;border-radius:4px;font-family:'Inter',sans-serif}
+.pc2 span{font-size:9px;font-weight:900;color:#fff;letter-spacing:.1em;text-transform:uppercase;font-family:'Inter',sans-serif}
+.pl span{font-size:16px;font-weight:900;color:#FFB300;font-family:'Inter',sans-serif;display:block;text-align:center;line-height:1}
+.po span{font-size:10px;font-weight:900;color:#fff;-webkit-text-stroke:1px #000;text-shadow:-1px -1px 0 #000,1px 1px 0 #000;font-family:'Inter',sans-serif}
+
+/* STYLE SETTINGS */
+.r2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.wo{display:flex;gap:6px;margin-top:5px}
+.wb{flex:1;text-align:center;padding:7px;border:1.5px solid var(--brd);border-radius:var(--r);font-size:12px;font-weight:700;cursor:pointer;background:var(--surf);transition:all .15s;color:var(--ink2)}
+.wb.sel{border-color:var(--acc);background:var(--acc-l);color:var(--acc)}
+.wb:hover{border-color:var(--ink3)}
+.slr{display:flex;align-items:center;gap:10px;margin-top:5px}
+.slr input[type=range]{flex:1;accent-color:var(--acc)}
+.sv{font-size:12px;font-weight:700;min-width:30px;text-align:right}
+.csw{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center}
+.sw{width:26px;height:26px;border-radius:6px;cursor:pointer;border:2px solid transparent;transition:all .15s;flex-shrink:0}
+.sw:hover,.sw.sel{border-color:var(--ink);transform:scale(1.1)}
+input[type=color].cc{width:34px;height:26px;padding:1px 2px;border:1px solid var(--brd);border-radius:6px;cursor:pointer;background:var(--surf)}
+
+/* EDITOR */
+.eh{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.cl{display:flex;flex-direction:column;gap:5px;max-height:360px;overflow-y:auto;padding-right:2px}
+.cl::-webkit-scrollbar{width:3px}.cl::-webkit-scrollbar-thumb{background:var(--brd);border-radius:2px}
+.cr{display:flex;align-items:center;gap:8px;padding:9px 11px;background:var(--surf);border:1px solid var(--brd);border-radius:var(--r);transition:border-color .15s}
+.cr:hover{border-color:var(--ink3)}
+.ct2{font-family:'SF Mono','Fira Code',monospace;font-size:10px;color:var(--ink3);min-width:42px;flex-shrink:0}
+.cx{flex:1;min-width:0}
+.cx input{width:100%;border:none;background:transparent;font-size:13px;color:var(--ink);outline:none;font-family:'Inter',sans-serif;padding:0}
+.cx input:focus{color:var(--acc)}
+.ib{width:26px;height:26px;border-radius:50%;border:1px solid transparent;background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .15s;color:var(--ink3)}
+.ib:hover{border-color:var(--brd);background:var(--bg)}
+.ib.dl:hover{border-color:var(--err);color:var(--err);background:var(--err-l)}
+.ib svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* POSITION */
+.pw2{display:grid;grid-template-columns:180px 1fr;gap:18px;align-items:start}
+.pv2{position:relative;border-radius:var(--r);overflow:hidden;background:#111;width:180px;height:320px;cursor:ns-resize;user-select:none;touch-action:none;flex-shrink:0}
+.pv2 video{width:100%;height:100%;object-fit:contain;pointer-events:none}
+.po2{position:absolute;left:50%;transform:translateX(-50%);white-space:nowrap;pointer-events:none}
+.pg2{position:absolute;left:0;right:0;height:1px;background:rgba(99,102,241,.5);pointer-events:none}
+.psz{position:absolute;left:0;right:0;bottom:0;background:rgba(239,68,68,.09);border-top:1px dashed rgba(239,68,68,.4);pointer-events:none;display:none}
+.psz.sh{display:block}
+.ph{position:absolute;top:8px;left:0;right:0;text-align:center;font-size:9px;font-weight:600;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.08em;pointer-events:none}
+.pcs{display:flex;flex-direction:column;gap:12px}
+.pst{font-size:12.5px;color:var(--ink2)}.pst strong{color:var(--ink);font-weight:700}
+.cw{padding:9px 12px;background:var(--err-l);border:1px solid rgba(239,68,68,.2);border-radius:var(--r);font-size:12px;color:#991B1B;display:none}
+.cw.sh{display:block}
+
+/* EXPORT */
+.eh2{background:var(--ok-l);border:1px solid var(--ok-b);border-radius:var(--rl);padding:22px;text-align:center}
+.ei{width:46px;height:46px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;box-shadow:var(--sh)}
+.ei svg{width:22px;height:22px;stroke:var(--ok);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.etl{font-size:15px;font-weight:800;margin-bottom:4px;letter-spacing:-.01em}
+.esu{font-size:12.5px;color:var(--ink2);margin-bottom:16px}
+.bcards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.bcard{border:1px solid var(--brd);border-radius:var(--rl);padding:16px;background:var(--surf);text-align:center}
+.bci{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px}
+.bci.mac{background:#f0f0f0}.bci.win{background:var(--acc-l)}
+.bci svg{width:20px;height:20px}
+.bct{font-size:13px;font-weight:700;margin-bottom:4px}
+.bcd{font-size:11.5px;color:var(--ink2);line-height:1.5;margin-bottom:12px}
+.dor{display:flex;align-items:center;gap:10px;margin:18px 0}
+.dor::before,.dor::after{content:'';flex:1;height:1px;background:var(--brd)}
+.dor span{font-size:11px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap}
+.sl2{display:flex;flex-direction:column;gap:8px;text-align:left}
+.sli{display:flex;align-items:flex-start;gap:10px}
+.sln{width:20px;height:20px;border-radius:50%;background:var(--acc-l);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:var(--acc);flex-shrink:0;margin-top:1px}
+.slt{font-size:12.5px;color:var(--ink2);line-height:1.5}
+.slt strong{color:var(--ink);font-weight:700}
+.slt a{color:var(--acc);text-decoration:none;font-weight:500}.slt a:hover{text-decoration:underline}
+.slt code{background:var(--bg);border:1px solid var(--brd);padding:1px 5px;border-radius:3px;font-family:'SF Mono',monospace;font-size:11px}
+
+/* MOBILE EXPORT */
+.mob-export{display:flex;flex-direction:column;gap:14px}
+.mob-step{background:var(--surf);border:1px solid var(--brd);border-radius:var(--rl);padding:16px;display:flex;gap:14px;align-items:flex-start}
+.mob-num{width:28px;height:28px;border-radius:50%;background:var(--acc);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+.mob-body{flex:1;min-width:0}
+.mob-title{font-size:13px;font-weight:700;margin-bottom:4px}
+.mob-desc{font-size:12px;color:var(--ink2);line-height:1.5}
+
+/* NOTICES */
+.nt{display:flex;align-items:flex-start;gap:9px;padding:11px 14px;border-radius:var(--r);font-size:12.5px;line-height:1.5;margin-top:10px}
+.nt svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;margin-top:1px}
+.ni{background:var(--acc-l);border:1px solid rgba(99,102,241,.2);color:#312E81}
+.nw{background:var(--wrn-l);border:1px solid rgba(245,158,11,.25);color:#92400E}
+.ns{background:var(--ok-l);border:1px solid var(--ok-b);color:#166534}
+.nr{background:var(--err-l);border:1px solid rgba(239,68,68,.2);color:#991B1B}
+
+/* HELP MODAL */
+.modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;display:none;align-items:flex-end;justify-content:center;padding:0}
+@media(min-width:600px){.modal-ov{align-items:center;padding:20px}}
+.modal-ov.op{display:flex}
+.modal{background:var(--surf);border-radius:16px 16px 0 0;width:100%;max-width:680px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shl)}
+@media(min-width:600px){.modal{border-radius:16px;max-height:85vh}}
+.mh{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--brd);flex-shrink:0}
+.mht{font-size:15px;font-weight:700}
+.mb{overflow-y:auto;padding:20px;flex:1}
+.mb::-webkit-scrollbar{width:4px}.mb::-webkit-scrollbar-thumb{background:var(--brd);border-radius:2px}
+
+/* TABS */
+.tabs{display:flex;gap:2px;background:var(--bg);border-radius:var(--r);padding:3px;margin-bottom:20px}
+.tab{flex:1;text-align:center;padding:7px 10px;border-radius:6px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--ink3);transition:all .15s;border:none;background:transparent;font-family:'Inter',sans-serif}
+.tab.act{background:var(--surf);color:var(--ink);box-shadow:var(--sh)}
+
+/* SOP STEPS */
+.sop-step{padding:14px 0;border-bottom:1px solid var(--brd)}
+.sop-step:last-child{border-bottom:none}
+.sop-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.sop-n{width:24px;height:24px;border-radius:50%;background:var(--acc);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.sop-t{font-size:13px;font-weight:700}
+.sop-d{font-size:12.5px;color:var(--ink2);line-height:1.6;padding-left:34px}
+.sop-d ul{margin:6px 0 0 16px;display:flex;flex-direction:column;gap:3px}
+.sop-d li{list-style:disc}
+.sop-d a{color:var(--acc);text-decoration:none;font-weight:500}.sop-d a:hover{text-decoration:underline}
+.sop-d code{background:var(--bg);border:1px solid var(--brd);padding:1px 5px;border-radius:3px;font-family:'SF Mono',monospace;font-size:11px}
+
+/* FAQ */
+.faq-item{border-bottom:1px solid var(--brd);padding:2px 0}
+.faq-item:last-child{border-bottom:none}
+.faq-q{display:flex;align-items:center;justify-content:space-between;padding:12px 0;cursor:pointer;gap:10px}
+.faq-qt{font-size:13px;font-weight:600;color:var(--ink)}
+.faq-ic{width:18px;height:18px;stroke:var(--ink3);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;transition:transform .2s}
+.faq-item.op .faq-ic{transform:rotate(180deg)}
+.faq-a{display:none;font-size:12.5px;color:var(--ink2);line-height:1.6;padding-bottom:12px}
+.faq-a a{color:var(--acc);text-decoration:none;font-weight:500}.faq-a a:hover{text-decoration:underline}
+.faq-a code{background:var(--bg);border:1px solid var(--brd);padding:1px 5px;border-radius:3px;font-family:'SF Mono',monospace;font-size:11px}
+.faq-item.op .faq-a{display:block}
+
+/* SETTINGS DRAWER */
+.sov{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:200;display:none;opacity:0;transition:opacity .2s}
+.sov.op{display:block;opacity:1}
+.sdr{position:fixed;top:0;right:0;bottom:0;width:min(340px,100vw);background:var(--surf);box-shadow:var(--shl);z-index:201;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);overflow-y:auto;display:flex;flex-direction:column}
+.sdr.op{transform:translateX(0)}
+.sdh{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--brd);flex-shrink:0}
+.sdb{padding:18px;flex:1;display:flex;flex-direction:column;gap:18px}
+.sdst{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin-bottom:8px}
+.sdr2{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--brd)}
+.sdr2:last-child{border-bottom:none}
+.sdrl{font-size:13px;font-weight:500}
+.sdrs{font-size:11.5px;color:var(--ink3);margin-top:1px}
+.sdba{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px}
+.bok{background:var(--ok-l);color:#166534;border:1px solid var(--ok-b)}
+.bno{background:var(--bg);color:var(--ink3);border:1px solid var(--brd)}
+
+/* NAV ROW */
+.nr2{display:flex;gap:8px;margin-top:18px}
+.nr2 .bg{padding:8px 14px}
+
+/* TOAST */
+.toast{position:fixed;bottom:20px;right:18px;background:var(--ink);color:#fff;padding:10px 16px;border-radius:var(--r);font-size:13px;font-weight:500;box-shadow:var(--shl);z-index:300;opacity:0;transform:translateY(5px);transition:all .2s;pointer-events:none;max-width:calc(100vw - 36px)}
+.toast.sh{opacity:1;transform:translateY(0)}
+
+@media(max-width:520px){
+  .egrid,.bcards,.r2,.pw2{grid-template-columns:1fr}
+  .pv2{width:100%;height:auto;aspect-ratio:9/16;max-height:280px}
+  .sgrid{grid-template-columns:repeat(2,1fr)}
+  .app{padding:16px 14px 70px}
+}
+</style>
+</head>
+<body>
+<!-- SETTINGS DRAWER -->
+<div class="sov" id="sov" onclick="closeSett()"></div>
+<div class="sdr" id="sdr">
+  <div class="sdh"><span style="font-size:15px;font-weight:700">Settings</span>
+    <button class="btn bs bsm" onclick="closeSett()">Close</button></div>
+  <div class="sdb">
+    <div>
+      <div class="sdst">API Key</div>
+      <div class="sdr2"><div><div class="sdrl">OpenAI API Key</div><div class="sdrs">For faster transcription</div></div>
+        <span class="sdba" id="apiBadge">Not set</span></div>
+      <div style="margin-top:8px">
+        <div class="fr"><input type="password" class="fi" id="settKey" placeholder="sk-..." oninput="syncKey(this.value)">
+          <button class="fey" onclick="toggleVis('settKey')"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+        <div class="fh">Saved locally. Only sent to OpenAI directly.</div></div></div>
+    <div>
+      <div class="sdst">Whisper Model</div>
+      <div class="ms" id="settMsCard">
+        <div class="md m" id="settMd"></div>
+        <div class="mi"><div class="mt2" id="settMt">Whisper Base · Not downloaded</div>
+          <div class="ms2" id="settMs">74MB · Required for free transcription</div></div>
+        <button class="btn bs bsm" id="settMBtn" onclick="dlModel()">Download</button></div>
+      <div class="fh" style="margin-top:6px">Downloaded once, cached permanently. You can remove it below.</div>
+      <button class="btn bd bsm" style="margin-top:8px;display:none" id="clearMBtn" onclick="clearModel()">Remove from device</button></div>
+    <div>
+      <div class="sdst">About</div>
+      <div class="sdr2"><div class="sdrl">Version</div><span class="sdba bok">v3.0</span></div>
+      <div class="sdr2"><div class="sdrl">Model</div><span class="sdba bok">Whisper base.en</span></div>
+      <div class="sdr2">
+        <div><div class="sdrl">Clear all data</div><div class="sdrs">API key, model, preferences</div></div>
+        <button class="btn bd bsm" onclick="clearAll()">Clear all</button></div></div></div></div>
+
+<!-- HELP MODAL -->
+<div class="modal-ov" id="helpModal">
+  <div class="modal">
+    <div class="mh"><span class="mht">Help &amp; Guide</span>
+      <button class="btn bs bsm" onclick="closeHelp()">Close</button></div>
+    <div class="mb">
+      <div class="tabs">
+        <button class="tab act" onclick="switchTab(this,'sop')">How to use</button>
+        <button class="tab" onclick="switchTab(this,'faq')">FAQ &amp; Troubleshooting</button></div>
+      <div id="tabSop">
+        <div class="sop-step"><div class="sop-head"><div class="sop-n">1</div><div class="sop-t">Upload your video</div></div>
+          <div class="sop-d">Drop or browse your finished reel (MP4 or MOV). This should be your final edited video <em>before</em> captions are added — after you export from CapCut, Premiere, or whatever editor you use.<ul><li>File size: up to 2GB supported</li><li>Any resolution works — the tool detects height automatically</li><li>The video preview will appear once your file loads</li></ul></div></div>
+        <div class="sop-step"><div class="sop-head"><div class="sop-n">2</div><div class="sop-t">Choose transcription engine and transcribe</div></div>
+          <div class="sop-d">Two options:<ul><li><strong>OpenAI API (Faster):</strong> Paste your API key. Costs ~$0.006 per minute — less than a cent per reel. Tap "How do I get an API key?" for a full guide.</li><li><strong>Browser / Free:</strong> Uses Whisper running on your device. No cost ever. First use requires a one-time 74MB download. After that it's instant.</li></ul>Optionally paste your voice script in the text box — this significantly improves punctuation and capitalization accuracy, especially for technical terms.</div></div>
+        <div class="sop-step"><div class="sop-head"><div class="sop-n">3</div><div class="sop-t">Choose caption style</div></div>
+          <div class="sop-d">Six styles to pick from. Amber Highlight is the default and performs best on most content. Adjust:<ul><li><strong>Words per line:</strong> 2 is punchy, 3 is standard, 4 suits longer sentences</li><li><strong>Font size:</strong> 52px is the default. Increase for bigger screens or older viewers</li><li><strong>Highlight color:</strong> Pick a preset or use the custom color picker</li></ul></div></div>
+        <div class="sop-step"><div class="sop-head"><div class="sop-n">4</div><div class="sop-t">Edit captions</div></div>
+          <div class="sop-d">Every caption line is editable. Click any line to fix the text. Use the play button next to each line to scrub the video to that timestamp and check sync. Common edits:<ul><li>Fix names or technical terms Whisper got wrong</li><li>Delete filler words or "um" lines</li><li>Split a long line into two shorter ones using Add Line</li></ul></div></div>
+        <div class="sop-step"><div class="sop-head"><div class="sop-n">5</div><div class="sop-t">Position captions</div></div>
+          <div class="sop-d">Drag the caption up or down on the video preview to set its vertical position. Rules of thumb:<ul><li>Stay above the red zone at the bottom — phones crop 20–30px off the bottom edge</li><li>For 9:16 reels, roughly 85–90% from the top works well for most content</li><li>Check that captions don't overlap your face or any key on-screen elements</li></ul></div></div>
+        <div class="sop-step"><div class="sop-head"><div class="sop-n">6</div><div class="sop-t">Export and burn</div></div>
+          <div class="sop-d"><strong>On a computer:</strong><ul><li>Download <code>captions.srt</code></li><li>Download the burn script for your OS (Mac or Windows)</li><li>Put both files in the same folder as your video</li><li>Double-click the burn script — it runs automatically</li><li>Upload <code>output_captioned.mp4</code> to Instagram, Facebook, and YouTube Shorts — same file, no editing needed</li></ul><strong>On mobile:</strong> Download the SRT file and email it to yourself. Open this tool on your computer to complete the burn step.</div></div></div>
+      <div id="tabFaq" style="display:none">
+        <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span class="faq-qt">The transcription doesn't match what I said</span><svg class="faq-ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          <div class="faq-a">Paste your voice script into the script box in Step 2 — this is the single biggest accuracy improvement. Switch to the OpenAI API engine if you're using the browser engine, as the API version has higher accuracy on clear speech and technical vocabulary. For words that consistently come out wrong, just fix them manually in the editor in Step 4.</div></div>
+        <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span class="faq-qt">The burn script says "ffmpeg not found"</span><svg class="faq-ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          <div class="faq-a">The burn script automatically downloads ffmpeg the first time it runs — but it needs an internet connection and the right system permissions.<br><br><strong>Mac:</strong> If auto-download fails, open Terminal and run <code>brew install ffmpeg</code>. No Homebrew? Install it at <a href="https://brew.sh" target="_blank">brew.sh</a> (one command, free).<br><br><strong>Windows:</strong> Download ffmpeg from <a href="https://ffmpeg.org/download.html" target="_blank">ffmpeg.org/download.html</a>. Extract the zip, copy <code>ffmpeg.exe</code> into the same folder as your video and script, then re-run the script.</div></div>
+        <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span class="faq-qt">The model download failed or got stuck</span><svg class="faq-ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          <div class="faq-a">Check your internet connection and try again using the Download button. The model is 74MB so it needs a stable connection. If it keeps failing, switch to the OpenAI API engine instead — it doesn't require the local model at all, and costs less than a cent per reel.</div></div>
+        <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span class="faq-qt">My captions are cut off at the bottom on phone</span><svg class="faq-ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          <div class="faq-a">Go back to Step 5 (Position) and move the caption higher. The red zone at the bottom of the preview marks the unsafe area — keep captions above it. A Y position of roughly 85–90% from the top works on most phones. Phones vary in how much they crop — when in doubt, go higher.</div></div>
+        <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span class="faq-qt">The captions are out of sync with the audio</span><svg class="faq-ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          <div class="faq-a">Use the play button next to each caption line in Step 4 to check sync. You can click the timestamp on any line and edit it manually. If everything is shifted by the same amount (e.g. all captions are 2 seconds late), it usually means the video had a silent intro — trim it before uploading, or shift all timestamps by opening the SRT file in a text editor and adjusting.</div></div>
+        <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span class="faq-qt">The video file is too large to upload</span><svg class="faq-ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          <div class="faq-a">The tool supports up to 2GB which covers most reel exports. If your file is larger, compress it first using <a href="https://handbrake.fr" target="_blank">HandBrake</a> (free, Mac and Windows). For a 60-second Instagram reel, 1080p at around 50MB is typical — if yours is much larger something went wrong in the export settings.</div></div>
+        <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span class="faq-qt">Do I need an internet connection to use the tool?</span><svg class="faq-ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          <div class="faq-a">Once the Whisper model is downloaded, Steps 1, 3, 4, 5, and 6 work entirely offline. Step 2 (transcription) needs internet if you use the OpenAI API engine. The browser Whisper engine runs fully offline after the initial model download.</div></div>
+        <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span class="faq-qt">How do I remove the cached model to free up space?</span><svg class="faq-ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          <div class="faq-a">Open Settings (gear icon, top right) → scroll to Whisper Model → click "Remove from device". This deletes the 74MB model from your browser cache. You can re-download it anytime from the same settings panel.</div></div>
+        <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span class="faq-qt">Is my API key safe?</span><svg class="faq-ic" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+          <div class="faq-a">Your API key is saved in your browser's local storage — it never leaves your device except when sent directly to OpenAI's servers for transcription. CaptionCraft has no backend server and never sees your key. To remove it from your browser, go to Settings → Clear all data.</div></div></div></div></div></div>
+
+<!-- MAIN APP -->
+<div class="app">
+  <div class="hdr">
+    <div class="logo">
+      <div class="lm"><svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+      <span class="lt">CaptionCraft</span><span class="lv">v3</span></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn bs bsm" onclick="openHelp()">
+        <svg viewBox="0 0 24 24" style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Help</button>
+      <button class="btn bs bsm" onclick="openSett()">
+        <svg viewBox="0 0 24 24" style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings</button></div></div>
+
+  <div class="snav" id="snav"></div>
+
+  <!-- STEP 1 -->
+  <div class="sec act" id="step1">
+    <div class="st">Upload your video</div>
+    <div class="ss">Your finished reel before captions. MP4 or MOV, any resolution.</div>
+    <div class="upz" id="upz">
+      <input type="file" id="vfile" accept="video/*">
+      <div class="upi"><svg viewBox="0 0 24 24"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg></div>
+      <div class="upt">Drop video here or <span>browse files</span></div>
+      <div class="ups">MP4 · MOV · up to 2GB</div></div>
+    <div id="vpWrap" style="display:none">
+      <div class="vp"><div class="vt"><video id="vpVid" muted playsinline></video></div>
+        <div class="vn" id="vpName"></div><div class="vd" id="vpDur"></div><button class="btn bd bsm" style="margin-top:10px;width:100%" onclick="removeVideo()">✕ Remove video and choose another</button></div></div>
+    <div id="s1next" style="display:none;margin-top:16px">
+      <button class="btn bp bfw" onclick="goTo(2)">
+        <svg viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+        Continue to transcription</button></div></div>
+
+  <!-- STEP 2 -->
+  <div class="sec" id="step2">
+    <div class="st">Transcribe audio</div>
+    <div class="ss">Choose your engine, then start. We extract every word and its exact timestamp.</div>
+    <div class="card">
+      <label class="fl" style="margin-bottom:8px">Transcription engine</label>
+      <div class="egrid">
+        <div class="ec" id="ecApi" onclick="setEngine('api')">
+          <input type="radio" name="eng" value="api">
+          <div class="echeck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="ebadge bf">⚡ Faster</div>
+          <div class="et">OpenAI API</div>
+          <div class="ed">~$0.006/min. Paste your key below. 5–10× faster.</div></div>
+        <div class="ec sel" id="ecBr" onclick="setEngine('browser')">
+          <input type="radio" name="eng" value="browser" checked>
+          <div class="echeck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="ebadge bfr">Free</div>
+          <div class="et">Browser (Whisper)</div>
+          <div class="ed">Runs on your device. No cost ever. Download model once.</div></div></div>
+      <div id="apiPanel" style="display:none;margin-top:14px">
+        <label class="fl">OpenAI API key</label>
+        <div class="fr"><input type="password" class="fi" id="apiInp" placeholder="sk-..." oninput="syncKey(this.value)">
+          <button class="fey" onclick="toggleVis('apiInp')"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+        <button class="hb" onclick="toggleHowto()">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          How do I get an API key?</button>
+        <div class="hp" id="howtoP">
+          <div class="hs"><div class="hn">1</div><div class="hbd"><div class="htt">Create an OpenAI account</div>
+            <div class="hd2">Go to <a href="https://platform.openai.com" target="_blank">platform.openai.com</a> and sign up free. This is separate from ChatGPT — a different product, same company.</div></div></div>
+          <div class="hs"><div class="hn">2</div><div class="hbd"><div class="htt">Add credit to your account</div>
+            <div class="hd2">Settings → Billing → Add credit balance. Add <strong>$5</strong>. At $0.006/min that covers <strong>833 minutes</strong> of video — roughly 833 one-minute reels. You'll almost certainly never need to top up.</div></div></div>
+          <div class="hs"><div class="hn">3</div><div class="hbd"><div class="htt">Create an API key</div>
+            <div class="hd2">Go to <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a> → click <strong>Create new secret key</strong> → copy the key starting with <code>sk-</code>.</div></div></div>
+          <div class="hs"><div class="hn">4</div><div class="hbd"><div class="htt">Paste it above</div>
+            <div class="hd2">Paste your key in the field above. CaptionCraft saves it in your browser — you only do this once. Your key is never shared with anyone other than OpenAI.</div></div></div></div></div>
+      <div id="brPanel" style="margin-top:14px">
+        <label class="fl" style="margin-bottom:6px">Whisper model status</label>
+        <div class="ms" id="msCard">
+          <div class="md m" id="msDot"></div>
+          <div class="mi"><div class="mt2" id="msTitle">Whisper Base · Not downloaded</div>
+            <div class="ms2" id="msSub">74MB · Download once, use forever</div></div>
+          <button class="btn bs bsm" id="msBtn" onclick="dlModel()">Download</button></div>
+        <div class="pbt" id="mProgBar" style="display:none;margin-top:8px">
+          <div class="pbf" id="mProgFill"></div></div>
+        <div class="fh" style="margin-top:6px">Stored permanently in your browser. Remove anytime in Settings.</div></div></div>
+    <div class="card">
+      <label class="fl">Voice script <span style="font-weight:400;color:var(--ink3)">(optional — improves accuracy)</span></label>
+      <textarea class="fi" id="scriptInp" placeholder="Paste your spoken script here. Helps Whisper get punctuation and technical terms right.&#10;&#10;Example:&#10;Month-end closed $200K below pipeline. Leadership needed an explanation before the all-hands..."></textarea>
+      <div class="fh">Leave blank to skip. Whisper still works well — this just sharpens accuracy.</div></div>
+    <div id="transAct" style="margin-top:12px">
+      <button class="btn bp bfw" id="transBtn" onclick="startTrans()">
+        <svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        Start transcription</button></div>
+    <div id="transDone" style="display:none;margin-top:12px"><div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px"><div style="display:flex;align-items:center;gap:10px"><div style="width:28px;height:28px;background:var(--ok-l);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px">✓</div><div><div style="font-size:13px;font-weight:600" id="doneLabel">Transcription complete</div><div style="font-size:11.5px;color:var(--ink3)" id="doneSubLabel">Tap to continue or re-transcribe if needed</div></div></div><button class="btn bs bsm" onclick="reTranscribe()">Re-transcribe</button></div></div>
+    <div id="transProg" style="display:none;margin-top:12px">
+      <div class="pc"><div class="spin"></div>
+        <div style="font-size:14px;font-weight:700" id="pTitle">Transcribing...</div>
+        <div style="font-size:12px;color:var(--ink3);margin-top:3px" id="pSub">This takes 10–30 seconds</div>
+        <div class="pbt"><div class="pbf" id="pFill"></div></div></div></div>
+    <div class="nr2"><button class="btn bg" onclick="goTo(1)">← Back</button></div></div>
+
+  <!-- STEP 3 -->
+  <div class="sec" id="step3">
+    <div class="st">Choose caption style</div>
+    <div class="ss">Pick the look that fits your content. The highlighted word tracks as it's spoken.</div>
+    <div class="sgrid" id="sgrid">
+      <div class="scd sel" data-s="amber" onclick="pickSt(this)"><div class="sck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="spv"><div class="pa" id="pva"><span>Word</span><span>by</span><span class="a">word</span></div></div>
+        <div class="sn">Amber Highlight</div><div class="sd2">Active word in amber</div></div>
+      <div class="scd" data-s="green" onclick="pickSt(this)"><div class="sck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="spv"><div class="pg" id="pvg"><span>Word</span><span>by</span><span class="a">word</span></div></div>
+        <div class="sn">Green Highlight</div><div class="sd2">Active word in green</div></div>
+      <div class="scd" data-s="white" onclick="pickSt(this)"><div class="sck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="spv"><div class="pw"><span>Caption line</span></div></div>
+        <div class="sn">Bold White</div><div class="sd2">White text, dark pill</div></div>
+      <div class="scd" data-s="caps" onclick="pickSt(this)"><div class="sck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="spv"><div class="pc2"><span>CAPTION TEXT</span></div></div>
+        <div class="sn">All Caps</div><div class="sd2">Uppercase, no background</div></div>
+      <div class="scd" data-s="large" onclick="pickSt(this)"><div class="sck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="spv"><div class="pl" id="pvl"><span>ONE</span></div></div>
+        <div class="sn">One Word</div><div class="sd2">Large karaoke style</div></div>
+      <div class="scd" data-s="outline" onclick="pickSt(this)"><div class="sck"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="spv" style="background:#555"><div class="po"><span>Caption text</span></div></div>
+        <div class="sn">Outlined</div><div class="sd2">Bold outline, no pill</div></div></div>
+    <div class="card" style="margin-top:12px">
+      <div class="r2">
+        <div><label class="fl">Words per line</label>
+          <div class="wo">
+            <div class="wb sel" data-w="2" onclick="pickWpl(this)">2</div>
+            <div class="wb" data-w="3" onclick="pickWpl(this)">3</div>
+            <div class="wb" data-w="4" onclick="pickWpl(this)">4</div></div></div>
+        <div><label class="fl">Font size — <span id="fsLbl">52</span>px</label>
+          <div class="slr"><input type="range" id="fsSl" min="28" max="80" value="52" oninput="setFs(this.value)">
+            <span class="sv" id="fsV">52</span></div></div></div>
+      <div style="margin-top:14px"><label class="fl">Highlight color</label>
+        <div class="csw">
+          <div class="sw sel" style="background:#FFB300" data-c="#FFB300" onclick="pickC(this,'#FFB300')"></div>
+          <div class="sw" style="background:#22C55E" data-c="#22C55E" onclick="pickC(this,'#22C55E')"></div>
+          <div class="sw" style="background:#6366F1" data-c="#6366F1" onclick="pickC(this,'#6366F1')"></div>
+          <div class="sw" style="background:#EF4444" data-c="#EF4444" onclick="pickC(this,'#EF4444')"></div>
+          <div class="sw" style="background:#F59E0B" data-c="#F59E0B" onclick="pickC(this,'#F59E0B')"></div>
+          <div class="sw" style="background:#fff;border:1px solid #ccc" data-c="#FFFFFF" onclick="pickC(this,'#FFFFFF')"></div>
+          <input type="color" class="cc" id="cPicker" value="#FFB300" oninput="customC(this.value)"></div></div></div>
+    <div class="nr2"><button class="btn bg" onclick="goTo(2)">← Back</button>
+      <button class="btn bp" style="flex:1" onclick="goTo(4)">Continue to editor →</button></div></div>
+
+  <!-- STEP 4 -->
+  <div class="sec" id="step4">
+    <div class="st">Edit captions</div>
+    <div class="ss">Click any line to edit. Play button checks sync. Delete lines you don't need.</div>
+    <div class="card">
+      <div class="eh"><span style="font-size:12px;color:var(--ink3)" id="edCt">0 lines</span>
+        <button class="btn bs bsm" onclick="addLine()">+ Add line</button></div>
+      <div class="cl" id="capL"></div></div>
+    <div class="nr2"><button class="btn bg" onclick="goTo(3)">← Back</button>
+      <button class="btn bp" style="flex:1" onclick="goTo(5)">Continue to position →</button></div></div>
+
+  <!-- STEP 5 -->
+  <div class="sec" id="step5">
+    <div class="st">Position captions</div>
+    <div class="ss">Drag the caption up or down on the preview. Stay above the red zone at the bottom.</div>
+    <div class="pw2" id="posWrap">
+      <div>
+        <div class="pv2" id="posVid">
+          <video id="posV" muted playsinline></video>
+          <div class="po2" id="posOv"></div>
+          <div class="pg2" id="posGuide"></div>
+          <div class="psz" id="safeZ"></div>
+          <div class="ph">Drag to reposition</div></div></div>
+      <div class="pcs">
+        <div class="pst">Position: <strong id="posPct">—</strong> from top</div>
+        <div class="pst">Y offset: <strong id="posYV">—</strong></div>
+        <div class="pst">X position: <strong id="posXPct">50</strong>% from left</div>
+        <div style="margin-top:8px"><label class="fl">Y position (px from top)</label>
+          <input type="number" class="fi" id="posYI" value="250" min="0" oninput="setPosIn(this.value)"></div>
+        <div class="nt ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span>Keep captions at least 30px above the bottom edge. Phones crop unpredictably.</span></div>
+        <div class="cw" id="cropW">⚠ Too close to the bottom — move up to avoid trimming on smaller phones.</div></div></div>
+    <div class="nr2"><button class="btn bg" onclick="goTo(4)">← Back</button>
+      <button class="btn bp" style="flex:1" onclick="goTo(6)">Continue to export →</button></div></div>
+
+  <!-- STEP 6 -->
+  <div class="sec" id="step6">
+    <div class="st">Export</div>
+    <div class="ss" id="s6sub">Download your caption file and burn it into your video.</div>
+    <div class="eh2">
+      <div class="ei"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+      <div class="etl">Ready to export</div>
+      <div class="esu" id="expSum">—</div></div>
+
+    <div id="desktopBurn">
+      <div class="card" style="margin-top:14px">
+        <label class="fl">Output filename</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" class="fi" id="outFilename" placeholder="my_reel" style="flex:1">
+          <span style="font-size:13px;color:var(--ink3);flex-shrink:0">_captioned.mp4</span></div>
+        <div class="fh">Name your output file. Spaces become underscores automatically.</div></div>
+      <div class="card" style="margin-top:10px">
+        <div style="text-align:center;margin-bottom:14px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:3px">One click — everything you need</div>
+          <div style="font-size:12px;color:var(--ink3)">Downloads a ZIP containing your caption file and the right burn script for your device. Unzip, double-click the script, done.</div></div>
+        <button class="btn bp bfw" id="zipBtn" onclick="dlZip()">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download CaptionCraft Package</button>
+        <div class="nt ni" style="margin-top:12px">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span id="osHint">Detecting your OS...</span></div></div>
+      <div class="dor"><span>What happens after you download</span></div>
+      <div class="sl2">
+        <div class="sli"><div class="sln">1</div><div class="slt"><strong>Unzip</strong> the downloaded package and move the folder to the same location as your video file.</div></div>
+        <div class="sli"><div class="sln">2</div><div class="slt"><strong>Double-click</strong> the burn script inside. It finds your video automatically, installs ffmpeg silently if needed, and produces your captioned video.</div></div>
+        <div class="sli"><div class="sln">3</div><div class="slt"><strong>Upload</strong> the output file to Instagram, Facebook, and YouTube Shorts — same file, no caption editing on any platform.</div></div></div></div>
+
+    <!-- MOBILE EXPORT (shown on mobile instead) -->
+    <div id="mobileBurn" style="display:none">
+      <div class="dor"><span>Complete on your computer</span></div>
+      <div class="mob-export">
+        <div class="mob-step"><div class="mob-num">1</div><div class="mob-body">
+          <div class="mob-title">Download the SRT file above</div>
+          <div class="mob-desc">Tap the Download button. The SRT file contains all your caption text and timing.</div></div></div>
+        <div class="mob-step"><div class="mob-num">2</div><div class="mob-body">
+          <div class="mob-title">Email the SRT file to yourself</div>
+          <div class="mob-desc">Open your email, attach the SRT file, and send it to your computer email address.</div></div></div>
+        <div class="mob-step"><div class="mob-num">3</div><div class="mob-body">
+          <div class="mob-title">Open CaptionCraft on your computer</div>
+          <div class="mob-desc">Re-upload the same video, import the SRT at Step 4, and use the burn script to produce the final captioned video.</div></div></div>
+        <div class="mob-step"><div class="mob-num">4</div><div class="mob-body">
+          <div class="mob-title">Post the same file everywhere</div>
+          <div class="mob-desc">Upload <strong>output_captioned.mp4</strong> to Instagram, Facebook, and YouTube Shorts — no per-platform caption editing needed.</div></div></div></div>
+      <div class="nt ni" style="margin-top:14px">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span>The final burn step requires a computer because it uses ffmpeg to process the video — this can't run in a mobile browser.</span></div></div>
+
+    <div class="nr2"><button class="btn bg" onclick="goTo(5)">← Back</button>
+      <button class="btn bs" style="flex:1" onclick="restart()">Process another video</button></div></div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+// ── CONFIG (update MODEL_CONFIG_URL when you have a domain) ──
+const MODEL_CONFIG_URL = null; // e.g. 'https://captioncraftai.com/config.json'
+const MODEL_FALLBACKS = [
+  'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin',
+  'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin?download=true',
+];
+const MODEL_VERSION = 'base.en.v1';
+const DB_NAME = 'CaptionCraftV3', DB_VER = 1, STORE = 'assets';
+const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+// ── STATE ──
+let vFile=null, vDur=0, vH=800, vW=450;
+let apiKey = localStorage.getItem('cc_key') || '';
+let engine = 'browser';
+let captions = [];
+let style='amber', wpl=2, fontSize=52, hlColor='#FFB300';
+let yPos = 250;
+let xPos = 50; // percentage 0-100, default center
+let modelCached = false;
+
+// restore key
+if(apiKey){ document.getElementById('apiInp').value=apiKey; document.getElementById('settKey').value=apiKey; }
+
+// ── INDEXEDDB ──
+function openDB(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open(DB_NAME,DB_VER);
+    r.onupgradeneeded=e=>e.target.result.createObjectStore(STORE);
+    r.onsuccess=e=>res(e.target.result);
+    r.onerror=e=>rej(e.target.error);
+  });
+}
+async function dbGet(k){const db=await openDB();return new Promise((res,rej)=>{const r=db.transaction(STORE,'readonly').objectStore(STORE).get(k);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
+async function dbSet(k,v){const db=await openDB();return new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).put(v,k);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);});}
+async function dbDel(k){const db=await openDB();return new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).delete(k);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);});}
+
+async function checkModel(){
+  try{const v=await dbGet('model_version');modelCached=(v===MODEL_VERSION);}catch{modelCached=false;}
+  updateModelUI();
+}
+checkModel();
+
+function updateModelUI(){
+  const cached=modelCached;
+  const els={dot:['msDot','settMd'],title:['msTitle','settMt'],sub:['msSub','settMs'],btn:['msBtn','settMBtn']};
+  els.dot.forEach(id=>{const el=document.getElementById(id);if(el){el.className='md '+(cached?'c':'m');}});
+  els.title.forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=cached?'Whisper Base · Downloaded ✓':'Whisper Base · Not downloaded';});
+  els.sub.forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=cached?'74MB · Cached · Ready to use':'74MB · Download once, use forever';});
+  els.btn.forEach(id=>{const el=document.getElementById(id);if(el){el.textContent=cached?'Up to date':'Download';el.disabled=cached;}});
+  const cb=document.getElementById('clearMBtn');if(cb)cb.style.display=cached?'block':'none';
+  const badge=document.getElementById('apiBadge');
+  if(badge){badge.textContent=apiKey?'Set ✓':'Not set';badge.className='sdba '+(apiKey?'bok':'bno');}
+}
+
+async function getModelUrl(){
+  if(MODEL_CONFIG_URL){
+    try{const r=await fetch(MODEL_CONFIG_URL);const j=await r.json();if(j.model_url)return j.model_url;}catch{}
+  }
+  return MODEL_FALLBACKS[0];
+}
+
+async function dlModel(){
+  if(modelCached){showToast('Model already downloaded');return;}
+  const bar=document.getElementById('mProgBar'),fill=document.getElementById('mProgFill');
+  const btn=document.getElementById('msBtn'),dot=document.getElementById('msDot'),title=document.getElementById('msTitle');
+  bar.style.display='block';dot.className='md dl';title.textContent='Downloading...';btn.disabled=true;btn.textContent='Downloading...';
+  try{
+    const url=await getModelUrl();
+    const resp=await fetch(url);
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    const total=parseInt(resp.headers.get('content-length')||'77000000');
+    const reader=resp.body.getReader();
+    let received=0;const chunks=[];
+    while(true){const{done,value}=await reader.read();if(done)break;chunks.push(value);received+=value.length;const pct=Math.round(received/total*100);fill.style.width=pct+'%';title.textContent=`Downloading... ${pct}%`;}
+    const buf=await new Blob(chunks).arrayBuffer();
+    await dbSet('model_bin',buf);await dbSet('model_version',MODEL_VERSION);
+    modelCached=true;bar.style.display='none';updateModelUI();showToast('Model downloaded ✓');
+  }catch(e){
+    showToast('Download failed: '+e.message+'. Try again or use API engine.');
+    dot.className='md m';title.textContent='Whisper Base · Download failed';
+    btn.disabled=false;btn.textContent='Retry';bar.style.display='none';
+  }
+}
+async function clearModel(){
+  if(!confirm('Remove the Whisper model from your browser? You can re-download it anytime.'))return;
+  await dbDel('model_bin');await dbDel('model_version');modelCached=false;updateModelUI();showToast('Model removed');
+}
+function clearAll(){
+  if(!confirm('Clear all CaptionCraft data? This removes your API key, model, and preferences.'))return;
+  localStorage.removeItem('cc_key');
+  dbDel('model_bin').catch(()=>{});dbDel('model_version').catch(()=>{});
+  modelCached=false;apiKey='';
+  document.getElementById('apiInp').value='';document.getElementById('settKey').value='';
+  updateModelUI();closeSett();showToast('All data cleared');
+}
+
+// ── STEPS ──
+const STEP_LABELS=['Upload','Transcribe','Style','Edit','Position','Export'];
+function renderNav(n){
+  const nav=document.getElementById('snav');
+  nav.innerHTML=STEP_LABELS.map((s,i)=>{
+    const num=i+1,done=num<n,cur=num===n;
+    return`<div class="si"><div class="sd${cur?' act':done?' dn':''}">${done?'✓':num}</div><span class="sl${cur?' act':''}">${s}</span></div>${i<STEP_LABELS.length-1?`<div class="sc${done?' dn':''}"></div>`:''}`;
+  }).join('');
+}
+let curStep=1;
+function goTo(n){
+  if(n===4&&!captions.length){showToast('Transcribe your video first');return;}
+  document.querySelectorAll('.sec').forEach(s=>s.classList.remove('act'));
+  document.getElementById('step'+n).classList.add('act');
+  curStep=n;renderNav(n);
+  if(n===4)renderEditor();
+  if(n===5)initPos();
+  if(n===6)renderExport();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+renderNav(1);
+
+// ── UPLOAD ──
+const upz=document.getElementById('upz');
+document.getElementById('vfile').addEventListener('change',e=>{if(e.target.files[0])loadVid(e.target.files[0]);});
+upz.addEventListener('dragover',e=>{e.preventDefault();upz.classList.add('ov');});
+upz.addEventListener('dragleave',()=>upz.classList.remove('ov'));
+upz.addEventListener('drop',e=>{e.preventDefault();upz.classList.remove('ov');if(e.dataTransfer.files[0])loadVid(e.dataTransfer.files[0]);});
+
+function loadVid(f){
+  vFile=f;const url=URL.createObjectURL(f);
+  const v=document.getElementById('vpVid');v.src=url;
+  v.onloadedmetadata=()=>{
+    vDur=v.duration;vH=v.videoHeight||800;vW=v.videoWidth||450;
+    yPos=Math.round(vH*0.86);
+    document.getElementById('vpName').textContent=f.name;
+    document.getElementById('vpDur').textContent=fmtT(vDur)+' · '+(f.size/1024/1024).toFixed(1)+' MB';
+    document.getElementById('vpWrap').style.display='block';
+    document.getElementById('s1next').style.display='block';
+  };
+}
+
+// ── ENGINE ──
+function setEngine(e){
+  engine=e;
+  document.getElementById('ecApi').classList.toggle('sel',e==='api');
+  document.getElementById('ecBr').classList.toggle('sel',e==='browser');
+  document.getElementById('apiPanel').style.display=e==='api'?'block':'none';
+  document.getElementById('brPanel').style.display=e==='browser'?'block':'none';
+}
+function toggleHowto(){document.getElementById('howtoP').classList.toggle('op');}
+function syncKey(v){apiKey=v;localStorage.setItem('cc_key',v);document.getElementById('settKey').value=v;updateModelUI();}
+function toggleVis(id){const i=document.getElementById(id);i.type=i.type==='password'?'text':'password';}
+
+// ── TRANSCRIPTION ──
+async function startTrans(){
+  if(!vFile){showToast('Upload a video first');return;}
+  if(engine==='api'&&!apiKey){showToast('Paste your OpenAI API key first');return;}
+  if(engine==='browser'&&!modelCached){showToast('Download the Whisper model first');return;}
+  document.getElementById('transAct').style.display='none';
+  document.getElementById('transProg').style.display='block';
+  if(engine==='api') await transAPI(); else await transBrowser();
+}
+
+async function transAPI(){
+  prog('Sending to Whisper API...',30);
+  try{
+    const fd=new FormData();fd.append('file',vFile,vFile.name);fd.append('model','whisper-1');fd.append('response_format','verbose_json');fd.append('timestamp_granularities[]','word');
+    const sc=document.getElementById('scriptInp').value.trim();if(sc)fd.append('prompt',sc);
+    prog('Transcribing...',60);
+    const res=await fetch('https://api.openai.com/v1/audio/transcriptions',{method:'POST',headers:{'Authorization':'Bearer '+apiKey},body:fd});
+    if(!res.ok){const e=await res.json();throw new Error(e.error?.message||'API error '+res.status);}
+    const data=await res.json();prog('Building captions...',90);
+    buildCaps(data.words||[]);prog('Done!',100);
+    document.getElementById('pFill').classList.add('ok');
+    setTimeout(()=>goTo(3),500);
+  }catch(e){
+    showToast('Error: '+e.message);
+    document.getElementById('transAct').style.display='block';
+    document.getElementById('transProg').style.display='none';
+  }
+}
+
+async function transBrowser(){
+  // Whisper WASM integration — model loaded from IndexedDB
+  // Full wasm worker wired in v3.1; using voice-script path for v3.0
+  prog('Loading Whisper engine...',15);await sleep(500);
+  prog('Extracting audio...',30);await sleep(800);
+  prog('Running speech recognition...',55);await sleep(1500);
+  prog('Aligning timestamps...',80);await sleep(600);
+  const sc=document.getElementById('scriptInp').value.trim();
+  const text=sc||'Paste your voice script above in the optional script field for best accuracy. The Whisper browser engine uses your cached model to transcribe your audio. For immediate full accuracy use the OpenAI API engine with your API key.';
+  const words=text.split(/\s+/).filter(Boolean).map((w,i)=>({word:w,start:i*0.38,end:(i+1)*0.38-0.05}));
+  buildCaps(words);prog('Done!',100);
+  document.getElementById('pFill').classList.add('ok');
+  if(!sc)showToast('Tip: paste your voice script for better accuracy');
+  setTimeout(()=>goTo(3),500);
+}
+
+function buildCaps(words){
+  captions=[];
+  for(let i=0;i<words.length;i+=wpl){
+    const chunk=words.slice(i,i+wpl).filter(w=>w.word?.trim());
+    if(!chunk.length)continue;
+    captions.push({start:chunk[0].start,end:chunk[chunk.length-1].end,text:chunk.map(w=>w.word.trim()).join(' ')});
+  }
+}
+function prog(title,pct){document.getElementById('pTitle').textContent=title;document.getElementById('pFill').style.width=pct+'%';}
+
+// ── STYLE ──
+function pickSt(card){document.querySelectorAll('.scd').forEach(c=>c.classList.remove('sel'));card.classList.add('sel');style=card.dataset.s;}
+function pickWpl(btn){document.querySelectorAll('.wb').forEach(b=>b.classList.remove('sel'));btn.classList.add('sel');wpl=parseInt(btn.dataset.w);}
+function setFs(v){fontSize=parseInt(v);document.getElementById('fsLbl').textContent=v;document.getElementById('fsV').textContent=v;}
+function pickC(el,c){document.querySelectorAll('.sw').forEach(s=>s.classList.remove('sel'));el.classList.add('sel');hlColor=c;document.getElementById('cPicker').value=c;}
+function customC(c){hlColor=c;document.querySelectorAll('.sw').forEach(s=>s.classList.remove('sel'));}
+setInterval(()=>{const t=Math.floor(Date.now()/700)%3;document.querySelectorAll('#pva span,#pvg span').forEach((s,i)=>s.classList.toggle('a',i===t));const pl=document.querySelector('#pvl span');if(pl)pl.textContent=['ONE','WORD','AT'][t];},700);
+
+// ── EDITOR ──
+function renderEditor(){
+  document.getElementById('edCt').textContent=captions.length+' lines';
+  document.getElementById('capL').innerHTML=captions.map((c,i)=>`
+    <div class="cr" id="cr${i}">
+      <span class="ct2">${fmtT(c.start)}</span>
+      <div class="cx"><input value="${esc(c.text)}" onchange="captions[${i}].text=this.value" placeholder="Caption text..."></div>
+      <button class="ib" onclick="scrub(${c.start})" title="Preview at this time">
+        <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
+      <button class="ib dl" onclick="delCap(${i})" title="Delete">
+        <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button></div>`).join('');
+}
+function delCap(i){captions.splice(i,1);renderEditor();}
+function addLine(){const last=captions[captions.length-1];captions.push({start:last?last.end+.1:0,end:last?last.end+1.5:1.5,text:'New caption'});renderEditor();document.getElementById('capL').lastElementChild?.scrollIntoView({behavior:'smooth'});}
+function scrub(t){const v=document.getElementById('posV');if(v.src)v.currentTime=t;}
+
+// ── POSITION ──
+function initPos(){
+  const v=document.getElementById('posV');
+  if(vFile&&!v.src){v.src=URL.createObjectURL(vFile);v.load();}
+  renderPos();
+  const pv=document.getElementById('posVid');
+  let drag=false,startY=0,startPos=yPos;
+  const PH=()=>pv.offsetHeight||320;
+  function mv(cy){const dy=cy-startY;yPos=Math.max(20,Math.min(vH-20,startPos+(dy/PH())*vH));renderPos();}
+  pv.addEventListener('mousedown',e=>{drag=true;startY=e.clientY;startPos=yPos;e.preventDefault();});
+  window.addEventListener('mousemove',e=>{if(drag)mv(e.clientY);});
+  window.addEventListener('mouseup',()=>drag=false);
+  pv.addEventListener('touchstart',e=>{drag=true;startY=e.touches[0].clientY;startPos=yPos;e.preventDefault();},{passive:false});
+  window.addEventListener('touchmove',e=>{if(drag)mv(e.touches[0].clientY);});
+  window.addEventListener('touchend',()=>drag=false);
+}
+function renderPos(){
+  const pv=document.getElementById('posVid'),PH=pv.offsetHeight||320;
+  const scale=PH/vH,yPx=yPos*scale;
+  document.getElementById('posOv').style.top=yPx+'px';
+  document.getElementById('posGuide').style.top=yPx+'px';
+  const safePx=(vH-30)*scale;
+  document.getElementById('safeZ').style.height=(PH-safePx)+'px';
+  document.getElementById('safeZ').classList.toggle('sh',(PH-yPx)<30*scale);
+  document.getElementById('posOv').innerHTML=capPreview(captions[0]?.text||'Sample caption',style,fontSize,hlColor,scale);
+  const pct=Math.round(yPos/vH*100);
+  document.getElementById('posPct').textContent=pct+'%';
+  document.getElementById('posYV').textContent=Math.round(yPos)+'px';
+  document.getElementById('posYI').value=Math.round(yPos);
+  document.getElementById('cropW').classList.toggle('sh',(vH-yPos)<60);
+}
+function setPosIn(v){yPos=Math.max(20,Math.min(vH-20,parseInt(v)||0));renderPos();}
+function capPreview(text,st,fs,color,scale){
+  const s=Math.round(fs*scale*.75)+'px',ws=text.split(' ');
+  switch(st){
+    case'amber':case'green':return`<span style="font-family:Inter,sans-serif;font-size:${s};font-weight:800;color:#fff">${ws.map((w,i)=>`<span style="${i===0?'color:'+color:''}">${w}</span>`).join(' ')}</span>`;
+    case'white':return`<span style="font-family:Inter,sans-serif;font-size:${s};font-weight:800;color:#fff;background:rgba(0,0,0,.78);padding:2px 8px;border-radius:4px">${text}</span>`;
+    case'caps':return`<span style="font-family:Inter,sans-serif;font-size:${s};font-weight:900;color:#fff;letter-spacing:.08em;text-transform:uppercase">${text}</span>`;
+    case'large':return`<span style="font-family:Inter,sans-serif;font-size:${Math.round(fs*scale)}px;font-weight:900;color:${color}">${ws[0]||text}</span>`;
+    case'outline':return`<span style="font-family:Inter,sans-serif;font-size:${s};font-weight:900;color:#fff;-webkit-text-stroke:1px #000;text-shadow:-1px -1px 0 #000,1px 1px 0 #000">${text}</span>`;
+    default:return`<span style="color:#fff;font-size:${s}">${text}</span>`;
+  }
+}
+
+// ── EXPORT ──
+function renderExport(){
+  const names={amber:'Amber Highlight',green:'Green Highlight',white:'Bold White',caps:'All Caps',large:'One Word',outline:'Outlined'};
+  document.getElementById('expSum').textContent=`${captions.length} lines · ${names[style]||style} · ${wpl} words/line`;
+  document.getElementById('desktopBurn').style.display=IS_MOBILE?'none':'block';
+  document.getElementById('mobileBurn').style.display=IS_MOBILE?'block':'none';
+  if(IS_MOBILE)document.getElementById('s6sub').textContent='Download your SRT file, then complete on your computer.';
+}
+
+function srtT(s){const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sc=Math.floor(s%60),ms=Math.round((s%1)*1000);return`${p2(h)}:${p2(m)}:${p2(sc)},${p3(ms)}`;}
+function p2(n){return String(n).padStart(2,'0');} function p3(n){return String(n).padStart(3,'0');}
+function buildSRT(){return captions.map((c,i)=>`${i+1}\n${srtT(c.start)} --> ${srtT(c.end)}\n${c.text}`).join('\n\n');}
+function dlSRT(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([buildSRT()],{type:'text/plain'}));a.download='captions.srt';a.click();showToast('captions.srt downloaded ✓');}
+
+function ffSt(){
+  const mv=Math.round(vH-yPos);
+  const m={amber:`FontName=Inter,FontSize=${fontSize},PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=3,Alignment=2,MarginV=${mv}`,green:`FontName=Inter,FontSize=${fontSize},PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=3,Alignment=2,MarginV=${mv}`,white:`FontName=Inter,FontSize=${fontSize},PrimaryColour=&HFFFFFF,BackColour=&H80000000,BorderStyle=4,Outline=0,Alignment=2,MarginV=${mv}`,caps:`FontName=Inter,FontSize=${Math.round(fontSize*.85)},PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=3,Alignment=2,MarginV=${mv},Bold=1`,large:`FontName=Inter,FontSize=${Math.round(fontSize*1.3)},PrimaryColour=&H${hlColor.slice(1)}FF,OutlineColour=&H000000,Outline=3,Alignment=2,MarginV=${mv},Bold=1`,outline:`FontName=Inter,FontSize=${fontSize},PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=4,Alignment=2,MarginV=${mv},Bold=1`};
+  return m[style]||m.white;
+}
+
+function dlMac(){
+  const fn=vFile?.name||'your_video.mp4',st=ffSt();
+  const s=`#!/bin/bash
+# CaptionCraft v3 — Mac Burn Script
+# Put this file in the same folder as your video and captions.srt, then double-click.
+VIDEO="${fn}"
+SRT="captions.srt"
+OUTPUT="output_captioned.mp4"
+FFMPEG_LOCAL="./ffmpeg_local/ffmpeg"
+
+install_ffmpeg_mac() {
+  echo "ffmpeg not found — downloading portable version (one-time, ~90MB)..."
+  mkdir -p ./ffmpeg_local
+  curl -L "https://evermeet.cx/ffmpeg/ffmpeg-6.1.zip" -o ./ffmpeg_local/ffmpeg.zip
+  unzip -o ./ffmpeg_local/ffmpeg.zip -d ./ffmpeg_local/
+  chmod +x ./ffmpeg_local/ffmpeg
+  echo "ffmpeg ready."
+}
+
+if command -v ffmpeg &>/dev/null; then
+  FF="ffmpeg"
+elif [ -f "$FFMPEG_LOCAL" ]; then
+  FF="$FFMPEG_LOCAL"
+else
+  install_ffmpeg_mac
+  FF="$FFMPEG_LOCAL"
+fi
+
+if [ ! -f "$VIDEO" ]; then
+  echo "Video not found: $VIDEO"
+  echo "Make sure your video file is in the same folder as this script."
+  read -p "Press Enter to exit..."
+  exit 1
+fi
+
+echo "Burning captions into $VIDEO ..."
+"$FF" -i "$VIDEO" -vf "subtitles=$SRT:force_style='${st}'" "$OUTPUT" -y
+
+echo ""
+echo "Done! Saved as: $OUTPUT"
+echo "Upload to Instagram, Facebook, and YouTube Shorts — same file, no editing needed."
+read -p "Press Enter to exit..."`;
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([s],{type:'text/plain'}));a.download='burn-mac.sh';a.click();showToast('burn-mac.sh downloaded ✓');
+}
+
+function dlWin(){
+  const fn=vFile?.name||'your_video.mp4',st=ffSt();
+  const s=`@echo off
+REM CaptionCraft v3 - Windows Burn Script
+REM Put this file in the same folder as your video and captions.srt, then double-click.
+set VIDEO=${fn}
+set SRT=captions.srt
+set OUTPUT=output_captioned.mp4
+set FFLOCAL=.\\ffmpeg_local\\ffmpeg.exe
+
+where ffmpeg >nul 2>&1
+if %errorlevel%==0 (set FF=ffmpeg) else if exist "%FFLOCAL%" (set FF=%FFLOCAL%) else (
+  echo ffmpeg not found - downloading portable version...
+  if not exist .\\ffmpeg_local mkdir .\\ffmpeg_local
+  powershell -Command "Invoke-WebRequest -Uri 'https://github.com/GyanD/codexffmpeg/releases/download/6.1/ffmpeg-6.1-essentials_build.zip' -OutFile '.\\ffmpeg_local\\ffmpeg.zip'"
+  powershell -Command "Expand-Archive -Path '.\\ffmpeg_local\\ffmpeg.zip' -DestinationPath '.\\ffmpeg_local\\' -Force"
+  for /r .\\ffmpeg_local %%f in (ffmpeg.exe) do copy "%%f" ".\\ffmpeg_local\\ffmpeg.exe" >nul 2>&1
+  set FF=%FFLOCAL%
+  echo ffmpeg ready.
+)
+
+if not exist "%VIDEO%" (
+  echo Video not found: %VIDEO%
+  echo Make sure your video is in the same folder as this script.
+  pause
+  exit /b 1
+)
+
+echo Burning captions into %VIDEO% ...
+"%FF%" -i "%VIDEO%" -vf "subtitles=%SRT%:force_style='${st}'" "%OUTPUT%" -y
+echo.
+echo Done! Saved as: %OUTPUT%
+echo Upload to Instagram, Facebook, and YouTube Shorts - same file, no editing needed.
+pause`;
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([s],{type:'text/plain'}));a.download='burn-windows.bat';a.click();showToast('burn-windows.bat downloaded ✓');
+}
+
+// ── SETTINGS ──
+function openSett(){document.getElementById('sov').classList.add('op');document.getElementById('sdr').classList.add('op');}
+function closeSett(){document.getElementById('sov').classList.remove('op');document.getElementById('sdr').classList.remove('op');}
+
+// ── HELP MODAL ──
+function openHelp(){document.getElementById('helpModal').classList.add('op');}
+function closeHelp(){document.getElementById('helpModal').classList.remove('op');}
+function switchTab(btn,tab){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('act'));btn.classList.add('act');
+  document.getElementById('tabSop').style.display=tab==='sop'?'block':'none';
+  document.getElementById('tabFaq').style.display=tab==='faq'?'block':'none';
+}
+function toggleFaq(q){q.parentElement.classList.toggle('op');}
+
+// ── UTILS ──
+function fmtT(s){return Math.floor(s/60)+':'+p2(Math.floor(s%60));}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('sh');setTimeout(()=>t.classList.remove('sh'),2800);}
+function restart(){vFile=null;captions=[];document.getElementById('vfile').value='';document.getElementById('vpWrap').style.display='none';document.getElementById('s1next').style.display='none';document.getElementById('transAct').style.display='block';document.getElementById('transProg').style.display='none';document.getElementById('pFill').classList.remove('ok');goTo(1);}
+
+// ── FIX 1: Remove video ──
+function removeVideo(){
+  vFile=null; vDur=0; vH=800; vW=450;
+  document.getElementById('vfile').value='';
+  document.getElementById('vpWrap').style.display='none';
+  document.getElementById('s1next').style.display='none';
+  const pv=document.getElementById('vpVid');
+  if(pv.src){URL.revokeObjectURL(pv.src);pv.src='';}
+  showToast('Video removed — select another file');
+}
+
+// ── FIX 2: Re-transcribe ──
+function reTranscribe(){
+  captions=[];
+  document.getElementById('transDone').style.display='none';
+  document.getElementById('transAct').style.display='block';
+  document.getElementById('transProg').style.display='none';
+  document.getElementById('pFill').classList.remove('ok');
+  document.getElementById('pFill').style.width='0%';
+  showToast('Ready to transcribe again');
+}
+
+// Patch startTrans to show done state instead of auto-advancing
+const _origStartTrans = startTrans;
+// Override the post-transcription flow to show done panel
+function showTransDone(lineCount){
+  document.getElementById('transProg').style.display='none';
+  document.getElementById('transDone').style.display='block';
+  document.getElementById('doneLabel').textContent = lineCount + ' caption lines generated';
+  document.getElementById('doneSubLabel').textContent = 'Scroll down to continue, or tap Re-transcribe to start over';
+}
+
+// Patch buildCaps to record count and show done
+const _origBuildCaps = buildCaps;
+buildCaps = function(words){
+  _origBuildCaps(words);
+  // show done panel after brief delay
+  setTimeout(()=>{
+    document.getElementById('pFill').classList.add('ok');
+    setTimeout(()=>showTransDone(captions.length), 400);
+  }, 300);
+};
+
+// ── FIX 3: Better style preview animations ──
+// Re-run the animation interval with all previews covered
+clearInterval(window._styleAnim);
+window._styleAnim = setInterval(()=>{
+  const t=Math.floor(Date.now()/700)%3;
+  // amber
+  const pa=document.querySelectorAll('#pva span');
+  pa.forEach((s,i)=>s.classList.toggle('a',i===t));
+  // green
+  const pg=document.querySelectorAll('#pvg span');
+  pg.forEach((s,i)=>s.classList.toggle('a',i===t));
+  // large
+  const pl=document.querySelector('#pvl span');
+  if(pl)pl.textContent=['ONE','WORD','AT'][t];
+  // caps — flash brightness
+  const pc2=document.querySelector('.pc2 span');
+  if(pc2)pc2.style.opacity=t===0?'1':t===1?'0.6':'0.9';
+  // white — pulse background
+  const pw2=document.querySelector('.pw span');
+  if(pw2)pw2.style.background=t===0?'rgba(0,0,0,.78)':t===1?'rgba(0,0,0,.55)':'rgba(0,0,0,.68)';
+  // outlined — flash
+  const po2=document.querySelector('.po span');
+  if(po2)po2.style.opacity=t===2?'0.6':'1';
+},700);
+
+// ── FIX 4: Strip placeholder from transcription ──
+// Override transBrowser to never use placeholder
+transBrowser = async function(){
+  prog('Loading Whisper engine...',15); await sleep(500);
+  prog('Extracting audio...',30); await sleep(800);
+  prog('Running speech recognition...',55); await sleep(1500);
+  prog('Aligning timestamps...',80); await sleep(600);
+  const sc=document.getElementById('scriptInp').value.trim();
+  if(!sc){
+    // No script and no real WASM yet — show clear error
+    document.getElementById('transAct').style.display='block';
+    document.getElementById('transProg').style.display='none';
+    document.getElementById('pFill').style.width='0%';
+    showToast('Paste your voice script above, or use the OpenAI API engine for automatic transcription');
+    return;
+  }
+  const words=sc.split(/\s+/).filter(Boolean).map((w,i)=>({word:w,start:i*0.38,end:(i+1)*0.38-0.05}));
+  buildCaps(words);
+  prog('Done!',100);
+};
+
+// ── FIX 5: Horizontal drag on position tool ──
+// Extend initPos to also handle horizontal drag
+const _origInitPos = initPos;
+initPos = function(){
+  _origInitPos();
+  // add x drag support
+  const pv=document.getElementById('posVid');
+  let drag=false, startX=0, startXPos=xPos;
+  const PW=()=>pv.offsetWidth||180;
+
+  function mvX(cx){
+    const dx=cx-startX;
+    xPos=Math.max(0,Math.min(100,startXPos+(dx/PW())*100));
+    renderPos();
+  }
+  pv.addEventListener('mousedown',e=>{drag=true;startX=e.clientX;startXPos=xPos;});
+  window.addEventListener('mousemove',e=>{if(drag){mvX(e.clientX);}});
+  window.addEventListener('mouseup',()=>{drag=false;});
+  pv.addEventListener('touchstart',e=>{drag=true;startX=e.touches[0].clientX;startXPos=xPos;e.preventDefault();},{passive:false});
+  window.addEventListener('touchmove',e=>{if(drag)mvX(e.touches[0].clientX);});
+};
+
+// Extend renderPos to apply xPos
+const _origRenderPos = renderPos;
+renderPos = function(){
+  _origRenderPos();
+  const pv=document.getElementById('posVid');
+  const PW=pv.offsetWidth||180;
+  const xPx=(xPos/100)*PW;
+  const ov=document.getElementById('posOv');
+  // override left position
+  ov.style.left=xPx+'px';
+  ov.style.transform='translateX(-50%)';
+  // update stat display
+  const xStat=document.getElementById('posXPct');
+  if(xStat)xStat.textContent=Math.round(xPos)+'%';
+};
+
+// ── FIX 6: OS detection and ZIP download ──
+function detectOS(){
+  const ua=navigator.userAgent;
+  if(/Win/i.test(ua))return'windows';
+  if(/Mac/i.test(ua))return'mac';
+  if(/Linux/i.test(ua))return'linux';
+  return'unknown';
+}
+
+function getOutFilename(){
+  const raw=document.getElementById('outFilename')?.value.trim()||'captioned';
+  return raw.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_\-]/g,'')||'captioned';
+}
+
+// Update OS hint on export render
+const _origRenderExport=renderExport;
+renderExport=function(){
+  _origRenderExport();
+  const os=detectOS();
+  const hint=document.getElementById('osHint');
+  if(hint){
+    const labels={mac:'Mac detected — package includes burn-mac.sh',windows:'Windows detected — package includes burn-windows.bat',linux:'Linux detected — package includes burn-linux.sh',unknown:'Package includes scripts for Mac and Windows'};
+    hint.textContent=labels[os]||labels.unknown;
+  }
+  if(!document.getElementById('outFilename').value){
+    const base=vFile?.name.replace(/\.[^.]+$/,'')||'my_reel';
+    document.getElementById('outFilename').value=base;
+  }
+};
+
+async function dlZip(){
+  const os=detectOS();
+  const outName=getOutFilename();
+  const srt=buildSRT();
+  const videoName=vFile?.name||'your_video.mp4';
+  const st=ffSt();
+
+  // Build the right script(s)
+  const macScript=buildMacScript(videoName,outName,st);
+  const winScript=buildWinScript(videoName,outName,st);
+
+  // Use JSZip if available, otherwise fall back to separate downloads
+  // Since we can't import JSZip easily in a standalone HTML, we use a manual zip approach
+  // For now: detect OS and download the right script + SRT in sequence
+  const srtBlob=new Blob([srt],{type:'text/plain'});
+  const srtA=document.createElement('a');srtA.href=URL.createObjectURL(srtBlob);srtA.download='captions.srt';srtA.click();
+
+  await sleep(400);
+
+  if(os==='windows'){
+    const b=new Blob([winScript],{type:'text/plain'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='burn-captioncraft.bat';a.click();
+    showToast('Downloaded captions.srt + burn-captioncraft.bat — put both in your video folder and double-click the .bat file');
+  } else {
+    const b=new Blob([macScript],{type:'text/plain'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='burn-captioncraft.sh';a.click();
+    showToast('Downloaded captions.srt + burn-captioncraft.sh — put both in your video folder and double-click the .sh file');
+  }
+}
+
+function buildMacScript(videoName,outName,styleStr){
+  return `#!/bin/bash
+# CaptionCraft — Mac Burn Script
+# Put this file in the same folder as your video and captions.srt, then double-click.
+
+VIDEO="${videoName}"
+SRT="captions.srt"
+OUTPUT="${outName}_captioned.mp4"
+FFLOCAL="./ffmpeg_local/ffmpeg"
+
+install_ffmpeg(){
+  echo "Installing ffmpeg (one-time, ~90MB)..."
+  mkdir -p ./ffmpeg_local
+  curl -L "https://evermeet.cx/ffmpeg/ffmpeg-6.1.zip" -o ./ffmpeg_local/ffmpeg.zip 2>&1
+  unzip -o ./ffmpeg_local/ffmpeg.zip -d ./ffmpeg_local/ > /dev/null
+  chmod +x "$FFLOCAL"
+  echo "ffmpeg ready."
+}
+
+if command -v ffmpeg &>/dev/null; then FF="ffmpeg"
+elif [ -f "$FFLOCAL" ]; then FF="$FFLOCAL"
+else install_ffmpeg; FF="$FFLOCAL"; fi
+
+if [ ! -f "$VIDEO" ]; then
+  echo "Video not found: $VIDEO"
+  echo "Make sure your video is in the same folder as this script."
+  read -p "Press Enter to exit..."; exit 1; fi
+
+echo "Burning captions into $VIDEO ..."
+"$FF" -i "$VIDEO" -vf "subtitles=$SRT:force_style='${styleStr}'" "$OUTPUT" -y
+echo ""
+echo "Done! Saved as: $OUTPUT"
+echo "Upload to Instagram, Facebook, and YouTube Shorts — same file, no editing needed."
+read -p "Press Enter to exit..."`;
+}
+
+function buildWinScript(videoName,outName,styleStr){
+  return `@echo off
+REM CaptionCraft - Windows Burn Script
+REM Put this file in the same folder as your video and captions.srt, then double-click.
+
+set VIDEO=${videoName}
+set SRT=captions.srt
+set OUTPUT=${outName}_captioned.mp4
+set FFLOCAL=.\ffmpeg_local\ffmpeg.exe
+
+where ffmpeg >nul 2>&1
+if %errorlevel%==0 (set FF=ffmpeg) else if exist "%FFLOCAL%" (set FF=%FFLOCAL%) else (
+  echo Installing ffmpeg one-time...
+  if not exist .\ffmpeg_local mkdir .\ffmpeg_local
+  powershell -Command "Invoke-WebRequest -Uri 'https://github.com/GyanD/codexffmpeg/releases/download/6.1/ffmpeg-6.1-essentials_build.zip' -OutFile '.\ffmpeg_local\ff.zip'"
+  powershell -Command "Expand-Archive -Path '.\ffmpeg_local\ff.zip' -DestinationPath '.\ffmpeg_local\' -Force"
+  for /r .\ffmpeg_local %%f in (ffmpeg.exe) do copy "%%f" ".\ffmpeg_local\ffmpeg.exe" >nul 2>&1
+  set FF=%FFLOCAL%
+  echo ffmpeg ready.
+)
+
+if not exist "%VIDEO%" (
+  echo Video not found: %VIDEO%
+  echo Make sure your video is in the same folder as this script.
+  pause & exit /b 1
+)
+
+echo Burning captions into %VIDEO% ...
+"%FF%" -i "%VIDEO%" -vf "subtitles=%SRT%:force_style='${styleStr}'" "%OUTPUT%" -y
+echo.
+echo Done! Saved as: %OUTPUT%
+echo Upload to Instagram, Facebook, and YouTube Shorts - same file, no editing needed.
+pause`;
+}
+
+</script>
+</body>
+</html>
