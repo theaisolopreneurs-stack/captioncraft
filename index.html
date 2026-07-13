@@ -297,6 +297,9 @@ input[type=color].cc{width:34px;height:26px;padding:1px 2px;border:1px solid var
 /* TOAST */
 .toast{position:fixed;bottom:20px;right:18px;background:var(--ink);color:#fff;padding:10px 16px;border-radius:var(--r);font-size:13px;font-weight:500;box-shadow:var(--shl);z-index:300;opacity:0;transform:translateY(5px);transition:all .2s;pointer-events:none;max-width:calc(100vw - 36px)}
 .toast.sh{opacity:1;transform:translateY(0)}
+.font-opt{border:1.5px solid var(--brd);border-radius:var(--r);padding:8px 10px;cursor:pointer;transition:all .15s;background:var(--surf)}
+.font-opt:hover{border-color:var(--ink3)}
+.font-opt.sel{border-color:var(--acc);background:var(--acc-l)}
 
 @media(max-width:520px){
   .egrid,.bcards,.r2,.pw2{grid-template-columns:1fr}
@@ -317,6 +320,9 @@ if (typeof SharedArrayBuffer === 'undefined' || !crossOriginIsolated) {
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&family=Oswald:wght@700&family=Bebas+Neue&family=Inter:wght@700&family=Anton&family=Roboto:wght@700&display=swap" rel="stylesheet">
 </head>
 <body>
 <!-- SETTINGS DRAWER -->
@@ -523,6 +529,36 @@ if (typeof SharedArrayBuffer === 'undefined' || !crossOriginIsolated) {
         <div><label class="fl">Font size — <span id="fsLbl">52</span>px</label>
           <div class="slr"><input type="range" id="fsSl" min="28" max="80" value="52" oninput="setFs(this.value)">
             <span class="sv" id="fsV">52</span></div></div></div>
+      <div style="margin-top:14px">
+        <label class="fl">Caption font</label>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:5px" id="fontGrid">
+          <div class="font-opt sel" data-font="Montserrat" data-url="https://fonts.gstatic.com/s/montserrat/v26/JTUHjIg1_i6t8kCHKm4532VJOt5-QNFgpCtr6Hw5aXo.woff2" onclick="pickFont(this)">
+            <div style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:13px">Montserrat</div>
+            <div style="font-size:10px;color:var(--ink3)">Most popular</div>
+          </div>
+          <div class="font-opt" data-font="Oswald" data-url="https://fonts.gstatic.com/s/oswald/v53/TK3iWkUHHAIjg752HT8Gl-1PKw.woff2" onclick="pickFont(this)">
+            <div style="font-family:'Oswald',sans-serif;font-weight:700;font-size:13px">Oswald</div>
+            <div style="font-size:10px;color:var(--ink3)">Tall &amp; narrow</div>
+          </div>
+          <div class="font-opt" data-font="Bebas Neue" data-url="https://fonts.gstatic.com/s/bebasneuepro/v5/TK3hWkUHHAIjg75cFa_0X0OsIBhqMw.woff2" onclick="pickFont(this)">
+            <div style="font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:13px">BEBAS NEUE</div>
+            <div style="font-size:10px;color:var(--ink3)">Bold caps style</div>
+          </div>
+          <div class="font-opt" data-font="Inter" data-url="https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hiJ-Ek-_EeA.woff2" onclick="pickFont(this)">
+            <div style="font-family:'Inter',sans-serif;font-weight:700;font-size:13px">Inter</div>
+            <div style="font-size:10px;color:var(--ink3)">Clean modern</div>
+          </div>
+          <div class="font-opt" data-font="Anton" data-url="https://fonts.gstatic.com/s/anton/v25/1Ptgg87LROyAm0K08i4gS7lu.woff2" onclick="pickFont(this)">
+            <div style="font-family:'Anton',sans-serif;font-weight:400;font-size:13px">Anton</div>
+            <div style="font-size:10px;color:var(--ink3)">High impact</div>
+          </div>
+          <div class="font-opt" data-font="Roboto" data-url="https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmWUlfBBc4AMP6lQ.woff2" onclick="pickFont(this)">
+            <div style="font-family:'Roboto',sans-serif;font-weight:700;font-size:13px">Roboto</div>
+            <div style="font-size:10px;color:var(--ink3)">Universal</div>
+          </div>
+        </div>
+      </div>
+
       <div style="margin-top:14px"><label class="fl">Highlight color</label>
         <div class="csw">
           <div class="sw sel" style="background:#FFB300" data-c="#FFB300" onclick="pickC(this,'#FFB300')"></div>
@@ -887,6 +923,17 @@ function pickWpl(btn){
   }
 }
 function setFs(v){fontSize=parseInt(v);document.getElementById('fsLbl').textContent=v;document.getElementById('fsV').textContent=v;}
+// Font state
+let selectedFont = 'Montserrat';
+let selectedFontUrl = 'https://fonts.gstatic.com/s/montserrat/v26/JTUHjIg1_i6t8kCHKm4532VJOt5-QNFgpCtr6Hw5aXo.woff2';
+
+function pickFont(el) {
+  document.querySelectorAll('.font-opt').forEach(f => f.classList.remove('sel'));
+  el.classList.add('sel');
+  selectedFont = el.dataset.font;
+  selectedFontUrl = el.dataset.url;
+}
+
 function pickC(el,c){document.querySelectorAll('.sw').forEach(s=>s.classList.remove('sel'));el.classList.add('sel');hlColor=c;document.getElementById('cPicker').value=c;}
 function customC(c){hlColor=c;document.querySelectorAll('.sw:not([data-oc])').forEach(s=>s.classList.remove('sel'));}
 let outlineColor='#000000';
@@ -1560,22 +1607,49 @@ async function startBurn() {
     const { fetchFile } = FFmpeg;
     const ff = await loadFFmpeg();
 
-    setBurnProg('Loading your video...', 20);
+    setBurnProg('Loading your video...', 18);
     ff.FS('writeFile', 'input.mp4', await fetchFile(vFile));
 
-    setBurnProg('Writing captions...', 30);
+    setBurnProg('Loading font...', 28);
+    try {
+      // Fetch TTF version of selected font for ffmpeg
+      const ttfUrl = selectedFontUrl.replace('.woff2', '.ttf');
+      const fontResp = await fetch(ttfUrl);
+      let fontData;
+      if (fontResp.ok) {
+        fontData = new Uint8Array(await fontResp.arrayBuffer());
+      } else {
+        // Fallback: fetch the woff2 and hope ffmpeg can handle it
+        const woff2Resp = await fetch(selectedFontUrl);
+        fontData = new Uint8Array(await woff2Resp.arrayBuffer());
+      }
+      ff.FS('writeFile', 'font.ttf', fontData);
+    } catch(fontErr) {
+      console.warn('Font fetch failed, using default:', fontErr);
+      // Continue without custom font — drawtext will use built-in monospace
+    }
+
+    setBurnProg('Writing captions...', 38);
     ff.FS('writeFile', 'captions.srt', new TextEncoder().encode(buildSRT()));
 
-    setBurnProg('Burning captions into video...', 40);
-    const mv = Math.round(vH - yPos);
-    const styleStr = buildFFmpegStyle(mv);
+    setBurnProg('Burning captions into video...', 45);
     const outName = getOutFilename() + '_captioned.mp4';
+
+    // Build drawtext filter — one entry per caption line
+    const drawtextFilter = buildDrawtextFilter();
+    if (!drawtextFilter) {
+      showToast('No captions to burn — go back to step 4');
+      document.getElementById('burnProgress').style.display = 'none';
+      burnBtn.disabled = false;
+      return;
+    }
 
     await ff.run(
       '-i', 'input.mp4',
-      '-vf', `subtitles=captions.srt:force_style='${styleStr}'`,
+      '-vf', drawtextFilter,
       '-c:a', 'copy',
       '-preset', 'ultrafast',
+      '-movflags', '+faststart',
       outName
     );
 
@@ -1617,30 +1691,96 @@ function setBurnProg(title, pct) {
   document.getElementById('burnFill').style.width = pct + '%';
 }
 
-function buildFFmpegStyle(marginV) {
-  const colors = {
-    amber: '&H00B3FF',   // amber in BGR hex
-    green: '&H76C55E',   // green
-    white: '&HFFFFFF',
-    caps:  '&HFFFFFF',
-    large: '&H00B3FF',
-    outline: '&HFFFFFF'
-  };
-  const primaryColor = colors[style] || '&HFFFFFF';
-  const fs = Math.round(fontSize * 0.85); // scale for video pixels vs preview pixels
-  const base = `FontName=Inter,FontSize=${fs},PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=3,Alignment=2,MarginV=${marginV},Bold=1`;
-  switch(style) {
-    case 'white': return `FontName=Inter,FontSize=${fs},PrimaryColour=&HFFFFFF,BackColour=&H80000000,BorderStyle=4,Outline=0,Alignment=2,MarginV=${marginV}`;
-    case 'caps':  return `FontName=Inter,FontSize=${Math.round(fs*0.85)},PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=3,Alignment=2,MarginV=${marginV},Bold=1`;
-    case 'outline': {
-      const oc = outlineColor || '#000000';
-      const ocBGR = '&H' + oc.slice(5,7) + oc.slice(3,5) + oc.slice(1,3);
-      const tc = hlColor || '#FFFFFF';
-      const tcBGR = '&H' + tc.slice(5,7) + tc.slice(3,5) + tc.slice(1,3);
-      return `FontName=Inter,FontSize=${fs},PrimaryColour=${tcBGR},OutlineColour=${ocBGR},BackColour=&H80FFFFFF,BorderStyle=4,Outline=3,Alignment=2,MarginV=${marginV},Bold=1`;
+function hexToFFmpegColor(hex) {
+  // Convert #RRGGBB to ffmpeg 0xAARRGGBB format
+  const r = hex.slice(1,3);
+  const g = hex.slice(3,5);
+  const b = hex.slice(5,7);
+  return `0xFF${r}${g}${b}`;
+}
+
+function escapeDrawtext(text) {
+  // Escape special chars for ffmpeg drawtext
+  return text
+    .replace(/\/g, '\\\\')
+    .replace(/'/g, "’")  // smart quote avoids shell escaping issues
+    .replace(/:/g, '\\:')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]');
+}
+
+function buildDrawtextFilter() {
+  if (!captions.length) return null;
+
+  const fs = Math.round(fontSize * (vH / 800)); // scale font to actual video height
+  const fc = hexToFFmpegColor(hlColor || '#FFFFFF');
+  const oc = hexToFFmpegColor(outlineColor || '#000000');
+  const bc = '0x80000000'; // semi-transparent black for pill backgrounds
+
+  // Calculate Y position — yPos is px from top of video
+  // X position — xPos is percentage across video width
+  const xPx = Math.round((xPos / 100) * vW);
+  const yPx = Math.round(yPos);
+
+  // For each caption line build a drawtext entry
+  const parts = captions.map(cap => {
+    const text = escapeDrawtext(
+      style === 'caps' ? cap.text.toUpperCase() : cap.text
+    );
+    const enable = `between(t,${cap.start.toFixed(3)},${cap.end.toFixed(3)})`;
+
+    let fontcolor, bordercolor, boxcolor, borderw, box;
+    switch(style) {
+      case 'white':
+        fontcolor = '0xFFFFFFFF';
+        bordercolor = '0x00000000';
+        borderw = 0;
+        box = 1;
+        boxcolor = bc;
+        break;
+      case 'outline':
+        fontcolor = hexToFFmpegColor(hlColor || '#111111');
+        bordercolor = hexToFFmpegColor(outlineColor || '#000000');
+        borderw = Math.max(2, Math.round(fs * 0.06));
+        box = 0;
+        boxcolor = '0x00000000';
+        break;
+      case 'caps':
+        fontcolor = '0xFFFFFFFF';
+        bordercolor = '0xFF000000';
+        borderw = Math.max(2, Math.round(fs * 0.05));
+        box = 0;
+        boxcolor = '0x00000000';
+        break;
+      default: // amber, green, large
+        fontcolor = fc;
+        bordercolor = '0xFF000000';
+        borderw = Math.max(2, Math.round(fs * 0.05));
+        box = 0;
+        boxcolor = '0x00000000';
+        break;
     }
-    default: return base;
-  }
+
+    const displayFs = style === 'large' ? Math.round(fs * 1.4) : fs;
+
+    return [
+      `drawtext=`,
+      `text='${text}'`,
+      `fontsize=${displayFs}`,
+      `fontcolor=${fontcolor}`,
+      `bordercolor=${bordercolor}`,
+      `borderw=${borderw}`,
+      `box=${box}`,
+      `boxcolor=${boxcolor}`,
+      `boxborderw=8`,
+      `x=${xPx}-tw/2`,
+      `y=${yPx}-th/2`,
+      `enable='${enable}'`,
+      `fontfile=font.ttf`,
+    ].join(':');
+  });
+
+  return parts.join(',');
 }
 
 // Keep ZIP download as fallback (accessible from help/settings)
