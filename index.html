@@ -1438,7 +1438,17 @@ async function startBurn() {
     let fontLoaded = false;
     const furl = fontUrls[selectedFont];
     if (furl) {
-      try { const fr = await fetch(furl); if (fr.ok) { ff.FS('writeFile', 'font.ttf', new Uint8Array(await fr.arrayBuffer())); fontLoaded = true; } } catch(e) {}
+      try {
+        const fr = await fetch(furl);
+        if (fr.ok) {
+          ff.FS('writeFile', 'font.ttf', new Uint8Array(await fr.arrayBuffer()));
+          fontLoaded = true;
+        } else {
+          console.error('Font fetch failed, status:', fr.status, fr.statusText, furl);
+        }
+      } catch(e) {
+        console.error('Font fetch threw:', e.message, furl);
+      }
     }
     setBurnProg('Burning captions...', 42);
     const filter = buildDrawtextFilter(fontLoaded);
