@@ -1429,11 +1429,11 @@ async function startBurn() {
     ff.FS('writeFile', 'input.mp4', await fetchFile(vFile));
     setBurnProg('Loading font...', 28);
     const fontUrls = {
-      'Montserrat': 'https://fonts.gstatic.com/s/montserrat/v26/JTUHjIg1_i6t8kCHKm4532VJOt5-QNFgpCuM70w5.ttf',
-      'Oswald':     'https://fonts.gstatic.com/s/oswald/v53/TK3iWkUHHAIjg75cFa_0X0OsIBhBLk8.ttf',
-      'Anton':      'https://fonts.gstatic.com/s/anton/v25/1Ptgg87LROyAm3Kz-C8.ttf',
-      'Inter':      'https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfMZg.ttf',
-      'Roboto':     'https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmWUlfBBc4.ttf',
+      'Montserrat': 'fonts/Montserrat-Regular.ttf',
+      'Oswald':     'fonts/Oswald-Regular.ttf',
+      'Anton':      'fonts/Anton-Regular.ttf',
+      'Inter':      'fonts/Inter-Regular.ttf',
+      'Roboto':     'fonts/Roboto-Regular.ttf',
     };
     let fontLoaded = false;
     const furl = fontUrls[selectedFont];
