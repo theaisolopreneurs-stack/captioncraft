@@ -1400,7 +1400,7 @@ async function loadFFmpeg() {
   if (ffmpegLoaded) return ffmpegInstance;
   const { createFFmpeg } = FFmpeg;
   const ff = createFFmpeg({
-    log: false,
+    log: true,
     corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
     progress: ({ ratio }) => {
       if (ratio > 0) {
