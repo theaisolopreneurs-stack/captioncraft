@@ -1353,7 +1353,7 @@ function renderPosition() {
   const raw = coordsToPx(coordX, coordY);
   const px = raw.px * scale, py = raw.py * scale;
   const ov = document.getElementById('posOverlay');
-  if (ov) { ov.style.left = px + 'px'; ov.style.top = py + 'px'; ov.style.transform = 'translate(-50%, -50%)'; ov.innerHTML = capPreviewHTML(captions[0]?.text || 'Sample caption', scale); }
+  if (ov) { ov.style.left = px + 'px'; ov.style.top = py + 'px'; ov.style.transform = 'translate(-50%, -50%)'; ov.innerHTML = capPreviewHTML(captions[0]?.text || 'Sample caption', PH); }
   const guide = document.getElementById('posGuide'); if (guide) guide.style.top = py + 'px';
   const safePx = (vH - 40) * scale;
   const safe = document.getElementById('posSafe'); if (safe) { safe.style.height = (PH - safePx) + 'px'; safe.classList.toggle('show', (vH - raw.py) < 60); }
@@ -1361,14 +1361,14 @@ function renderPosition() {
   syncCoordInputs();
 }
 
-function capPreviewHTML(text, scale) {
-  const s = Math.round(fontSize * scale * 0.75) + 'px';
+function capPreviewHTML(text, PH) {
+  const s = Math.round(fontSize * (PH / 800)) + 'px';
   const words = text.split(' ');
   switch (captionStyle) {
     case 'amber': case 'green': return `<span style="font-size:${s};font-weight:800;color:#fff;font-family:'${selectedFont}',sans-serif">${words.map((w,i)=>`<span style="${i===0?'color:'+hlColor:''}">${w}</span>`).join(' ')}</span>`;
     case 'white': return `<span style="font-size:${s};font-weight:800;color:#fff;background:rgba(0,0,0,.78);padding:2px 8px;border-radius:4px;font-family:'${selectedFont}',sans-serif">${text}</span>`;
     case 'caps': return `<span style="font-size:${s};font-weight:900;color:#fff;letter-spacing:.08em;text-transform:uppercase;font-family:'${selectedFont}',sans-serif">${text}</span>`;
-    case 'large': return `<span style="font-size:${Math.round(fontSize*scale)}px;font-weight:900;color:${hlColor};font-family:'${selectedFont}',sans-serif">${words[0]||text}</span>`;
+    case 'large': return `<span style="font-size:${Math.round(fontSize*1.4*(PH/800))}px;font-weight:900;color:${hlColor};font-family:'${selectedFont}',sans-serif">${words[0]||text}</span>`;
     case 'outline': return `<span style="font-size:${s};font-weight:900;color:${hlColor};-webkit-text-stroke:2px ${olColor};paint-order:stroke fill;font-family:'${selectedFont}',sans-serif">${text}</span>`;
     default: return `<span style="font-size:${s};color:#fff">${text}</span>`;
   }
