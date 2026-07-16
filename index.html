@@ -1483,7 +1483,7 @@ function setBurnProg(title, pct) {
   document.getElementById('burnFill').style.width = pct + '%';
 }
 
-function hexToFFColor(hex) { const h = hex.replace('#',''); return '0xFF'+h.slice(0,2)+h.slice(2,4)+h.slice(4,6); }
+function hexToFFColor(hex) { const h = hex.replace('#',''); return '0x'+h.slice(0,2)+h.slice(2,4)+h.slice(4,6)+'FF'; }
 function escDrawtext(t) { return t.replace(/\\/g,'\\\\').replace(/'/g,'\u2019').replace(/:/g,'\\:').replace(/\[/g,'\\[').replace(/\]/g,'\\]'); }
 
 function buildDrawtextFilter(fontLoaded) {
@@ -1498,10 +1498,10 @@ function buildDrawtextFilter(fontLoaded) {
     const enable = `between(t,${cap.start.toFixed(3)},${cap.end.toFixed(3)})`;
     let fontcolor, bordercolor, borderw, box, boxcolor;
     switch(captionStyle) {
-      case 'white':   fontcolor='0xFFFFFFFF'; bordercolor='0x00000000'; borderw=0; box=1; boxcolor='0x80000000'; break;
+      case 'white':   fontcolor='0xFFFFFFFF'; bordercolor='0x00000000'; borderw=0; box=1; boxcolor='0x00000080'; break;
       case 'outline': fontcolor=fc; bordercolor=oc; borderw=Math.max(2,Math.round(fs*.06)); box=0; boxcolor='0x00000000'; break;
-      case 'caps':    fontcolor='0xFFFFFFFF'; bordercolor='0xFF000000'; borderw=Math.max(2,Math.round(fs*.05)); box=0; boxcolor='0x00000000'; break;
-      default:        fontcolor=fc; bordercolor='0xFF000000'; borderw=Math.max(2,Math.round(fs*.05)); box=0; boxcolor='0x00000000'; break;
+      case 'caps':    fontcolor='0xFFFFFFFF'; bordercolor='0x000000FF'; borderw=Math.max(2,Math.round(fs*.05)); box=0; boxcolor='0x00000000'; break;
+      default:        fontcolor=fc; bordercolor='0x000000FF'; borderw=Math.max(2,Math.round(fs*.05)); box=0; boxcolor='0x00000000'; break;
     }
     const dispFs = captionStyle === 'large' ? Math.round(fs*1.4) : fs;
     return `drawtext=${fontRef}text='${text}':fontsize=${dispFs}:fontcolor=${fontcolor}:bordercolor=${bordercolor}:borderw=${borderw}:box=${box}:boxcolor=${boxcolor}:boxborderw=8:x=${xPx}-tw/2:y=${yPx}-th/2:enable='${enable}'`;
