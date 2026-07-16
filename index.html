@@ -22,6 +22,11 @@ if (!window.crossOriginIsolated && 'serviceWorker' in navigator) {
 }
 </script>
 <style>
+@font-face { font-family: 'Montserrat'; src: url('fonts/Montserrat-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Oswald'; src: url('fonts/Oswald-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Anton'; src: url('fonts/Anton-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Inter'; src: url('fonts/Inter-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Roboto'; src: url('fonts/Roboto-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
@@ -310,8 +315,7 @@ textarea.field { resize: vertical; min-height: 90px; padding: 9px 12px; line-hei
 
 /* Caption preview animations */
 .prev-word { font-size: 10px; font-weight: 800; color: #fff; margin: 0 1.5px; display: inline-block; transition: color .15s; font-family: 'Montserrat', sans-serif; }
-.prev-word.a { color: #FFB300; }
-.prev-word.ag { color: #10B981; }
+.prev-word.act { color: var(--hl-demo, #FFB300); }
 .prev-white { font-size: 10px; font-weight: 800; color: #fff; background: rgba(0,0,0,.78); padding: 2px 8px; border-radius: 4px; font-family: 'Montserrat', sans-serif; }
 .prev-caps { font-size: 9px; font-weight: 900; color: #fff; letter-spacing: .1em; text-transform: uppercase; font-family: 'Montserrat', sans-serif; }
 .prev-large { font-size: 18px; font-weight: 900; color: #FFB300; font-family: 'Montserrat', sans-serif; display: block; text-align: center; }
@@ -654,15 +658,10 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
     <div class="sec-sub">Pick the look that fits your content. The active word highlights as it's spoken.</div>
 
     <div class="style-grid" id="styleGrid">
-      <div class="scard sel" data-style="amber" onclick="pickStyle(this)">
+      <div class="scard sel" data-style="word" onclick="pickStyle(this)">
         <div class="scard-check"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
-        <div class="scard-preview"><div id="pvAmber"><span class="prev-word">Word</span><span class="prev-word">by</span><span class="prev-word a">word</span></div></div>
-        <div class="scard-name">Amber Highlight</div><div class="scard-desc">Active word in amber</div>
-      </div>
-      <div class="scard" data-style="green" onclick="pickStyle(this)">
-        <div class="scard-check"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
-        <div class="scard-preview"><div id="pvGreen"><span class="prev-word">Word</span><span class="prev-word">by</span><span class="prev-word ag">word</span></div></div>
-        <div class="scard-name">Green Highlight</div><div class="scard-desc">Active word in green</div>
+        <div class="scard-preview"><div id="pvWord"><span class="prev-word">Word</span><span class="prev-word">by</span><span class="prev-word act">word</span></div></div>
+        <div class="scard-name">Word by Word</div><div class="scard-desc">Active word highlighted, color set below</div>
       </div>
       <div class="scard" data-style="white" onclick="pickStyle(this)">
         <div class="scard-check"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
@@ -891,7 +890,7 @@ let vFile = null, vDur = 0, vH = 800, vW = 450;
 let engine = 'browser';
 let apiKey = localStorage.getItem('cc_apikey') || '';
 let captions = [];
-let captionStyle = 'amber';
+let captionStyle = 'word';
 let wpl = 2;
 let fontSize = 52;
 let hlColor = '#FFB300';
@@ -1209,7 +1208,12 @@ function buildCaptions(words) {
   for (let i = 0; i < words.length; i += wpl) {
     const chunk = words.slice(i, i + wpl).filter(w => w.word && w.word.trim());
     if (!chunk.length) continue;
-    captions.push({ start: chunk[0].start, end: chunk[chunk.length - 1].end, text: chunk.map(w => w.word.trim()).join(' ') });
+    captions.push({
+      start: chunk[0].start,
+      end: chunk[chunk.length - 1].end,
+      text: chunk.map(w => w.word.trim()).join(' '),
+      words: chunk.map(w => ({ text: w.word.trim(), start: w.start, end: w.end }))
+    });
   }
 }
 
@@ -1257,8 +1261,9 @@ function pickFont(card) {
 function pickHlColor(el, c) {
   document.querySelectorAll('#hlSwatches .swatch').forEach(s => s.classList.remove('sel'));
   el.classList.add('sel'); hlColor = c;
+  document.documentElement.style.setProperty('--hl-demo', c);
 }
-function setHlColorCustom(c) { hlColor = c; document.querySelectorAll('#hlSwatches .swatch').forEach(s => s.classList.remove('sel')); }
+function setHlColorCustom(c) { hlColor = c; document.documentElement.style.setProperty('--hl-demo', c); document.querySelectorAll('#hlSwatches .swatch').forEach(s => s.classList.remove('sel')); }
 function pickOlColor(el, c) {
   document.querySelectorAll('#olSwatches .swatch').forEach(s => s.classList.remove('sel'));
   el.classList.add('sel'); olColor = c;
@@ -1267,8 +1272,7 @@ function setOlColorCustom(c) { olColor = c; document.querySelectorAll('#olSwatch
 
 setInterval(() => {
   const t = Math.floor(Date.now() / 700) % 3;
-  document.querySelectorAll('#pvAmber .prev-word').forEach((w, i) => { w.classList.toggle('a', i === t); });
-  document.querySelectorAll('#pvGreen .prev-word').forEach((w, i) => { w.classList.toggle('ag', i === t); });
+  document.querySelectorAll('#pvWord .prev-word').forEach((w, i) => { w.classList.toggle('act', i === t); });
   const pl = document.getElementById('pvLarge'); if (pl) pl.textContent = ['ONE','WORD','AT'][t];
 }, 700);
 
@@ -1365,7 +1369,7 @@ function capPreviewHTML(text, PH) {
   const s = Math.round(fontSize * (PH / 800)) + 'px';
   const words = text.split(' ');
   switch (captionStyle) {
-    case 'amber': case 'green': return `<span style="font-size:${s};font-weight:800;color:#fff;font-family:'${selectedFont}',sans-serif">${words.map((w,i)=>`<span style="${i===0?'color:'+hlColor:''}">${w}</span>`).join(' ')}</span>`;
+    case 'word': return `<span style="font-size:${s};font-weight:800;color:#fff;font-family:'${selectedFont}',sans-serif">${words.map((w,i)=>`<span style="${i===0?'color:'+hlColor:''}">${w}</span>`).join(' ')}</span>`;
     case 'white': return `<span style="font-size:${s};font-weight:800;color:#fff;background:rgba(0,0,0,.78);padding:2px 8px;border-radius:4px;font-family:'${selectedFont}',sans-serif">${text}</span>`;
     case 'caps': return `<span style="font-size:${s};font-weight:900;color:#fff;letter-spacing:.08em;text-transform:uppercase;font-family:'${selectedFont}',sans-serif">${text}</span>`;
     case 'large': return `<span style="font-size:${Math.round(fontSize*1.4*(PH/800))}px;font-weight:900;color:${hlColor};font-family:'${selectedFont}',sans-serif">${words[0]||text}</span>`;
@@ -1376,7 +1380,7 @@ function capPreviewHTML(text, PH) {
 
 // BURN
 function renderBurnStep() {
-  const names = { amber:'Amber Highlight', green:'Green Highlight', white:'Bold White', caps:'All Caps', large:'One Word', outline:'Outlined' };
+  const names = { word:'Word by Word', white:'Bold White', caps:'All Caps', large:'One Word', outline:'Outlined' };
   document.getElementById('burnSummary').textContent = `${captions.length} lines · ${names[captionStyle]||captionStyle} · ${selectedFont} · ${wpl} words/line`;
   const base = vFile?.name.replace(/\.[^.]+$/, '') || 'my_reel';
   if (!document.getElementById('outName').value) document.getElementById('outName').value = base;
@@ -1451,7 +1455,7 @@ async function startBurn() {
       }
     }
     setBurnProg('Burning captions...', 42);
-    const filter = buildDrawtextFilter(fontLoaded);
+    const filter = await buildDrawtextFilter(fontLoaded);
     if (!filter) throw new Error('No captions to burn');
     const outName = getOutName() + '_captioned.mp4';
     await ff.run('-i', 'input.mp4', '-vf', filter, '-c:a', 'copy', '-preset', 'ultrafast', '-movflags', '+faststart', outName);
@@ -1486,13 +1490,52 @@ function setBurnProg(title, pct) {
 function hexToFFColor(hex) { const h = hex.replace('#',''); return '0x'+h.slice(0,2)+h.slice(2,4)+h.slice(4,6)+'FF'; }
 function escDrawtext(t) { return t.replace(/\\/g,'\\\\').replace(/'/g,'\u2019').replace(/:/g,'\\:').replace(/\[/g,'\\[').replace(/\]/g,'\\]'); }
 
-function buildDrawtextFilter(fontLoaded) {
+function getCapWords(cap) {
+  const displayWords = cap.text.split(/\s+/).filter(Boolean);
+  if (cap.words && cap.words.length === displayWords.length) {
+    return displayWords.map((t, i) => ({ text: t, start: cap.words[i].start, end: cap.words[i].end }));
+  }
+  const n = displayWords.length || 1;
+  const dur = cap.end - cap.start;
+  return displayWords.map((t, i) => ({ text: t, start: cap.start + (i / n) * dur, end: cap.start + ((i + 1) / n) * dur }));
+}
+
+async function buildDrawtextFilter(fontLoaded) {
   if (!captions.length) return null;
   const fs = Math.round(fontSize * (vH / 800));
   const fc = hexToFFColor(hlColor), oc = hexToFFColor(olColor);
   const fontRef = fontLoaded ? 'fontfile=font.ttf:' : '';
   const raw = coordsToPx(coordX, coordY);
   const xPx = Math.round(raw.px), yPx = Math.round(raw.py);
+  const dispFs = captionStyle === 'large' ? Math.round(fs * 1.4) : fs;
+
+  if (captionStyle === 'word') {
+    try { await document.fonts.load(`400 ${dispFs}px '${selectedFont}'`); } catch(e) {}
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.font = `400 ${dispFs}px '${selectedFont}'`;
+    const gap = Math.round(dispFs * 0.28);
+    const borderw = Math.max(2, Math.round(dispFs * .05));
+    const parts = [];
+    captions.forEach(cap => {
+      const words = getCapWords(cap);
+      const widths = words.map(w => ctx.measureText(w.text).width);
+      const totalW = widths.reduce((a, b) => a + b, 0) + gap * (words.length - 1);
+      let cursor = xPx - totalW / 2;
+      words.forEach((w, i) => {
+        const wx = Math.round(cursor);
+        const wText = escDrawtext(w.text);
+        const base = `text='${wText}':fontsize=${dispFs}:borderw=${borderw}:box=0:boxcolor=0x00000000:boxborderw=8:x=${wx}:y=${yPx}-th/2`;
+        // inactive phase: white, shown before and after this word's own window
+        parts.push(`drawtext=${fontRef}${base}:fontcolor=0xFFFFFFFF:bordercolor=0x000000FF:enable='between(t,${cap.start.toFixed(3)},${w.start.toFixed(3)})+between(t,${w.end.toFixed(3)},${cap.end.toFixed(3)})'`);
+        // active phase: highlight color, shown only during this word's own window
+        parts.push(`drawtext=${fontRef}${base}:fontcolor=${fc}:bordercolor=0x000000FF:enable='between(t,${w.start.toFixed(3)},${w.end.toFixed(3)})'`);
+        cursor += widths[i] + gap;
+      });
+    });
+    return parts.join(',');
+  }
+
   const parts = captions.map(cap => {
     const text = escDrawtext(captionStyle === 'caps' ? cap.text.toUpperCase() : cap.text);
     const enable = `between(t,${cap.start.toFixed(3)},${cap.end.toFixed(3)})`;
@@ -1503,7 +1546,6 @@ function buildDrawtextFilter(fontLoaded) {
       case 'caps':    fontcolor='0xFFFFFFFF'; bordercolor='0x000000FF'; borderw=Math.max(2,Math.round(fs*.05)); box=0; boxcolor='0x00000000'; break;
       default:        fontcolor=fc; bordercolor='0x000000FF'; borderw=Math.max(2,Math.round(fs*.05)); box=0; boxcolor='0x00000000'; break;
     }
-    const dispFs = captionStyle === 'large' ? Math.round(fs*1.4) : fs;
     return `drawtext=${fontRef}text='${text}':fontsize=${dispFs}:fontcolor=${fontcolor}:bordercolor=${bordercolor}:borderw=${borderw}:box=${box}:boxcolor=${boxcolor}:boxborderw=8:x=${xPx}-tw/2:y=${yPx}-th/2:enable='${enable}'`;
   });
   return parts.join(',');
