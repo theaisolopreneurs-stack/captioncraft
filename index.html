@@ -23,10 +23,14 @@ if (!window.crossOriginIsolated && 'serviceWorker' in navigator) {
 </script>
 <style>
 @font-face { font-family: 'Montserrat'; src: url('fonts/Montserrat-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Montserrat Bold'; src: url('fonts/Montserrat-Bold.ttf') format('truetype'); font-weight: 700; font-display: swap; }
 @font-face { font-family: 'Oswald'; src: url('fonts/Oswald-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Oswald Bold'; src: url('fonts/Oswald-Bold.ttf') format('truetype'); font-weight: 700; font-display: swap; }
 @font-face { font-family: 'Anton'; src: url('fonts/Anton-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
 @font-face { font-family: 'Inter'; src: url('fonts/Inter-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Inter Bold'; src: url('fonts/Inter-Bold.ttf') format('truetype'); font-weight: 700; font-display: swap; }
 @font-face { font-family: 'Roboto'; src: url('fonts/Roboto-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Roboto Bold'; src: url('fonts/Roboto-Bold.ttf') format('truetype'); font-weight: 700; font-display: swap; }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
@@ -711,8 +715,14 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
           <div class="font-card sel" data-font="Montserrat" onclick="pickFont(this)" style="font-family:'Montserrat',sans-serif">
             <div class="font-card-name">Montserrat</div><div class="font-card-desc">Most popular</div>
           </div>
+          <div class="font-card" data-font="Montserrat Bold" onclick="pickFont(this)" style="font-family:'Montserrat Bold',sans-serif">
+            <div class="font-card-name">Montserrat Bold</div><div class="font-card-desc">Heavier weight</div>
+          </div>
           <div class="font-card" data-font="Oswald" onclick="pickFont(this)" style="font-family:'Oswald',sans-serif">
             <div class="font-card-name">Oswald</div><div class="font-card-desc">Tall &amp; narrow</div>
+          </div>
+          <div class="font-card" data-font="Oswald Bold" onclick="pickFont(this)" style="font-family:'Oswald Bold',sans-serif">
+            <div class="font-card-name">Oswald Bold</div><div class="font-card-desc">Bolder &amp; narrow</div>
           </div>
           <div class="font-card" data-font="Anton" onclick="pickFont(this)" style="font-family:'Anton',sans-serif">
             <div class="font-card-name">Anton</div><div class="font-card-desc">High impact</div>
@@ -720,8 +730,14 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
           <div class="font-card" data-font="Inter" onclick="pickFont(this)" style="font-family:'Inter',sans-serif">
             <div class="font-card-name">Inter</div><div class="font-card-desc">Clean modern</div>
           </div>
+          <div class="font-card" data-font="Inter Bold" onclick="pickFont(this)" style="font-family:'Inter Bold',sans-serif">
+            <div class="font-card-name">Inter Bold</div><div class="font-card-desc">Bolder modern</div>
+          </div>
           <div class="font-card" data-font="Roboto" onclick="pickFont(this)" style="font-family:'Roboto',sans-serif">
             <div class="font-card-name">Roboto</div><div class="font-card-desc">Universal</div>
+          </div>
+          <div class="font-card" data-font="Roboto Bold" onclick="pickFont(this)" style="font-family:'Roboto Bold',sans-serif">
+            <div class="font-card-name">Roboto Bold</div><div class="font-card-desc">Bolder universal</div>
           </div>
         </div>
         <div class="field-hint" style="margin-top:4px">Font previews above are rendered in each typeface.</div>
@@ -1197,6 +1213,9 @@ async function transcribeViaBrowser() {
       ...(sc ? { initial_prompt: sc } : {})
     });
 
+    console.log('FULL TEXT:', result.text);
+    console.log('CHUNKS SAMPLE:', JSON.stringify(result.chunks?.slice(0, 15), null, 2));
+
     setTransProg('Building captions...', 92);
     let words = [];
     if (result.chunks && result.chunks.length) {
@@ -1495,11 +1514,15 @@ async function startBurn() {
     ff.FS('writeFile', 'input.mp4', await fetchFile(vFile));
     setBurnProg('Loading font...', 28);
     const fontUrls = {
-      'Montserrat': 'fonts/Montserrat-Regular.ttf',
-      'Oswald':     'fonts/Oswald-Regular.ttf',
-      'Anton':      'fonts/Anton-Regular.ttf',
-      'Inter':      'fonts/Inter-Regular.ttf',
-      'Roboto':     'fonts/Roboto-Regular.ttf',
+      'Montserrat':      'fonts/Montserrat-Regular.ttf',
+      'Montserrat Bold': 'fonts/Montserrat-Bold.ttf',
+      'Oswald':          'fonts/Oswald-Regular.ttf',
+      'Oswald Bold':     'fonts/Oswald-Bold.ttf',
+      'Anton':           'fonts/Anton-Regular.ttf',
+      'Inter':           'fonts/Inter-Regular.ttf',
+      'Inter Bold':      'fonts/Inter-Bold.ttf',
+      'Roboto':          'fonts/Roboto-Regular.ttf',
+      'Roboto Bold':     'fonts/Roboto-Bold.ttf',
     };
     let fontLoaded = false;
     const furl = fontUrls[selectedFont];
