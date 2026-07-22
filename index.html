@@ -817,6 +817,17 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
         <div class="crop-warn" id="cropWarn">⚠ Too close to the bottom — move up.</div>
       </div>
     </div>
+
+    <div class="card" style="margin-top:14px">
+      <label class="field-label" style="margin-bottom:6px">Scrub preview</label>
+      <div class="pos-preview" id="scrubPreview" style="cursor:default;margin:0 auto">
+        <video id="scrubVid" muted playsinline></video>
+        <div class="pos-overlay" id="scrubOverlay"></div>
+      </div>
+      <input type="range" id="scrubBar" min="0" max="100" step="0.01" value="0" style="width:100%;margin-top:10px" oninput="onScrubInput(this.value)">
+      <div class="field-hint">Drag to check caption timing, position, and color against the real video before burning. Approximate — the actual burn uses ffmpeg's renderer, which looks slightly different.</div>
+    </div>
+
     <div class="nav-row">
       <button class="btn btn-ghost" onclick="goTo(4)">← Back</button>
       <button class="btn btn-primary" style="flex:1" onclick="goTo(6)">Continue to burn →</button>
@@ -1312,6 +1323,24 @@ function initPosition() {
   const v = document.getElementById('posVid');
   if (vFile && !v.src) { v.src = URL.createObjectURL(vFile); v.load(); }
   renderPosition();
+
+  const sv = document.getElementById('scrubVid');
+  if (sv && vFile && !sv.src) {
+    sv.src = URL.createObjectURL(vFile);
+    sv.load();
+    sv.addEventListener('loadedmetadata', () => {
+      const bar = document.getElementById('scrubBar');
+      if (bar) bar.max = sv.duration || 0;
+    });
+    sv.addEventListener('timeupdate', () => {
+      const bar = document.getElementById('scrubBar');
+      if (bar && document.activeElement !== bar) bar.value = sv.currentTime;
+      updateScrubPreview();
+    });
+    sv.addEventListener('seeked', updateScrubPreview);
+  }
+  updateScrubPreview();
+
   const preview = document.getElementById('posPreview');
   let dragging = false, startX = 0, startY = 0, startCX = coordX, startCY = coordY;
   function onStart(cx, cy) { dragging = true; startX = cx; startY = cy; startCX = coordX; startCY = coordY; }
@@ -1350,12 +1379,16 @@ function applyPreset(cx, cy) {
   renderPosition();
 }
 
+function overlayPxPy(PH) {
+  const scale = PH / vH;
+  const raw = coordsToPx(coordX, coordY);
+  return { px: raw.px * scale, py: raw.py * scale, scale, raw };
+}
+
 function renderPosition() {
   const preview = document.getElementById('posPreview');
   const PW = preview.offsetWidth || 180, PH = preview.offsetHeight || 320;
-  const scale = PH / vH;
-  const raw = coordsToPx(coordX, coordY);
-  const px = raw.px * scale, py = raw.py * scale;
+  const { px, py, scale, raw } = overlayPxPy(PH);
   const ov = document.getElementById('posOverlay');
   if (ov) { ov.style.left = px + 'px'; ov.style.top = py + 'px'; ov.style.transform = 'translate(-50%, -50%)'; ov.innerHTML = capPreviewHTML(captions[0]?.text || 'Sample caption', PH); }
   const guide = document.getElementById('posGuide'); if (guide) guide.style.top = py + 'px';
@@ -1365,11 +1398,40 @@ function renderPosition() {
   syncCoordInputs();
 }
 
-function capPreviewHTML(text, PH) {
+function findActiveCaption(t) {
+  return captions.find(c => t >= c.start && t < c.end) || null;
+}
+
+function updateScrubPreview() {
+  const v = document.getElementById('scrubVid');
+  const wrap = document.getElementById('scrubPreview');
+  const overlay = document.getElementById('scrubOverlay');
+  if (!v || !wrap || !overlay) return;
+  const PH = wrap.offsetHeight || 320;
+  const cap = findActiveCaption(v.currentTime);
+  if (!cap) { overlay.innerHTML = ''; return; }
+  let activeWordIdx = 0;
+  if (captionStyle === 'word') {
+    const words = getCapWords(cap);
+    const idx = words.findIndex(w => v.currentTime >= w.start && v.currentTime < w.end);
+    if (idx >= 0) activeWordIdx = idx;
+  }
+  const { px, py } = overlayPxPy(PH);
+  overlay.style.left = px + 'px'; overlay.style.top = py + 'px'; overlay.style.transform = 'translate(-50%, -50%)';
+  overlay.innerHTML = capPreviewHTML(cap.text, PH, activeWordIdx);
+}
+
+function onScrubInput(val) {
+  const v = document.getElementById('scrubVid');
+  if (v && v.src) v.currentTime = parseFloat(val);
+  updateScrubPreview();
+}
+
+function capPreviewHTML(text, PH, activeWordIdx = 0) {
   const s = Math.round(fontSize * (PH / 800)) + 'px';
   const words = text.split(' ');
   switch (captionStyle) {
-    case 'word': return `<span style="font-size:${s};font-weight:800;color:#fff;font-family:'${selectedFont}',sans-serif">${words.map((w,i)=>`<span style="${i===0?'color:'+hlColor:''}">${w}</span>`).join(' ')}</span>`;
+    case 'word': return `<span style="font-size:${s};font-weight:800;color:#fff;font-family:'${selectedFont}',sans-serif">${words.map((w,i)=>`<span style="${i===activeWordIdx?'color:'+hlColor:''}">${w}</span>`).join(' ')}</span>`;
     case 'white': return `<span style="font-size:${s};font-weight:800;color:#fff;background:rgba(0,0,0,.78);padding:2px 8px;border-radius:4px;font-family:'${selectedFont}',sans-serif">${text}</span>`;
     case 'caps': return `<span style="font-size:${s};font-weight:900;color:#fff;letter-spacing:.08em;text-transform:uppercase;font-family:'${selectedFont}',sans-serif">${text}</span>`;
     case 'large': return `<span style="font-size:${Math.round(fontSize*1.4*(PH/800))}px;font-weight:900;color:${hlColor};font-family:'${selectedFont}',sans-serif">${words[0]||text}</span>`;
