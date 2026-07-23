@@ -1209,7 +1209,7 @@ async function transcribeViaBrowser() {
     const sc = document.getElementById('scriptInp').value.trim();
     const result = await transcriber(trimmed, {
       language: 'english', task: 'transcribe', return_timestamps: 'word',
-      chunk_length_s: Math.min(Math.max(durSec, 30), 300), stride_length_s: 0,
+      chunk_length_s: 30, stride_length_s: 5,
       ...(sc ? { initial_prompt: sc } : {})
     });
 
