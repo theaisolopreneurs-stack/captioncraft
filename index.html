@@ -493,10 +493,10 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
       </div>
     </div>
     <div>
-      <div class="sett-section-title">Whisper Model</div>
+      <div class="sett-section-title">Model Status</div>
       <div class="mstatus" id="settModelCard">
         <div class="mdot missing" id="settMdot"></div>
-        <div class="minfo"><div class="mtitle" id="settMtitle">Not downloaded</div><div class="msub">74MB · Required for free transcription</div></div>
+        <div class="minfo"><div class="mtitle" id="settMtitle">Not downloaded</div><div class="msub">~280MB · Required for free transcription</div></div>
         <button class="btn btn-secondary btn-sm" id="settMBtn" onclick="downloadModel()">Download</button>
       </div>
       <div class="field-hint" style="margin-top:6px">Downloaded once, cached permanently. Remove anytime below.</div>
@@ -505,7 +505,7 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
     <div>
       <div class="sett-section-title">About</div>
       <div class="sett-row"><div class="sett-row-label">Version</div><span class="sett-badge ok">1.0</span></div>
-      <div class="sett-row"><div class="sett-row-label">Whisper model</div><span class="sett-badge ok">base.en</span></div>
+      <div class="sett-row"><div class="sett-row-label">Model</div><span class="sett-badge ok">base.en</span></div>
       <div class="sett-row">
         <div><div class="sett-row-label">Clear all data</div><div class="sett-row-sub">Removes API key, model, preferences</div></div>
         <button class="btn btn-danger btn-sm" onclick="clearAll()">Clear all</button>
@@ -580,7 +580,7 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
           <input type="radio" name="eng" value="browser" checked style="display:none">
           <div class="ecard-check"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
           <div class="ebadge ebadge-free">Free</div>
-          <div class="ecard-title">Browser (Whisper)</div>
+          <div class="ecard-title">Browser</div>
           <div class="ecard-desc">Runs on your device. No cost ever. One-time model download.</div>
         </div>
       </div>
@@ -606,10 +606,10 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
 
       <!-- Browser Panel -->
       <div id="browserPanel" style="margin-top:14px">
-        <label class="field-label" style="margin-bottom:6px">Whisper model status</label>
+        <label class="field-label" style="margin-bottom:6px">Model status</label>
         <div class="mstatus" id="modelCard">
           <div class="mdot missing" id="modelDot"></div>
-          <div class="minfo"><div class="mtitle" id="modelTitle">Not downloaded</div><div class="msub" id="modelSub">74MB · Download once, use forever</div></div>
+          <div class="minfo"><div class="mtitle" id="modelTitle">Not downloaded</div><div class="msub" id="modelSub">~280MB · Download once, use forever</div></div>
           <button class="btn btn-secondary btn-sm" id="modelBtn" onclick="downloadModel()">Download</button>
         </div>
         <div class="pbar-wrap" id="modelPbar" style="display:none"><div class="pbar-fill" id="modelPfill"></div></div>
@@ -619,8 +619,8 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
 
     <div class="card">
       <label class="field-label">Voice script <span>(optional — improves punctuation accuracy)</span></label>
-      <textarea class="field" id="scriptInp" placeholder="Paste your spoken script here. Helps Whisper get punctuation and technical terms right.&#10;&#10;Example:&#10;Month-end closed $200K below pipeline. Leadership needed an answer before the all-hands..."></textarea>
-      <div class="field-hint">Leave blank to skip. Whisper transcribes accurately without it — this just sharpens capitalization and punctuation.</div>
+      <textarea class="field" id="scriptInp" placeholder="Paste your spoken script here. Helps get punctuation and technical terms right.&#10;&#10;Example:&#10;Month-end closed $200K below pipeline. Leadership needed an answer before the all-hands..."></textarea>
+      <div class="field-hint">Leave blank to skip. Transcription is accurate without it — this just sharpens capitalization and punctuation.</div>
     </div>
 
     <div id="transBtn-wrap" style="margin-top:12px">
@@ -937,52 +937,33 @@ if (apiKey) {
 }
 
 // ══════════════════════════════════════════════
-// INDEXEDDB (Whisper model cache)
+// WHISPER MODEL CACHE (real ONNX model used for transcription)
 // ══════════════════════════════════════════════
-const DB_NAME = 'CaptionCraftDB', DB_VER = 1, STORE = 'models';
-const MODEL_VERSION = 'base.en.v1';
-const MODEL_URL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin';
+const WHISPER_PKG_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
+const WHISPER_MODEL_ID = 'Xenova/whisper-base.en';
+const MODEL_VERSION = 'whisper-base.en-fp32-v1';
+const TRANSFORMERS_CACHE_NAME = 'transformers-cache';
+let cachedTranscriber = null;
 
-function openDB() {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open(DB_NAME, DB_VER);
-    r.onupgradeneeded = e => e.target.result.createObjectStore(STORE);
-    r.onsuccess = e => res(e.target.result);
-    r.onerror = e => rej(e.target.error);
+// Loads (or reuses) the real transcription pipeline. Downloads + caches the
+// actual ONNX weights via the browser Cache API — this is the same model
+// transcribeViaBrowser() uses, so pre-downloading here means transcription
+// itself won't need to fetch anything.
+async function getTranscriber(onProgress) {
+  if (cachedTranscriber) return cachedTranscriber;
+  const { pipeline, env } = await import(WHISPER_PKG_URL);
+  env.allowLocalModels = false; env.useBrowserCache = true;
+  cachedTranscriber = await pipeline('automatic-speech-recognition', WHISPER_MODEL_ID, {
+    device: 'wasm', dtype: 'fp32',
+    progress_callback: onProgress || (() => {})
   });
-}
-async function dbGet(k) {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(k);
-    req.onsuccess = () => res(req.result);
-    req.onerror = () => rej(req.error);
-  });
-}
-async function dbSet(k, v) {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put(v, k);
-    tx.oncomplete = () => res();
-    tx.onerror = () => rej(tx.error);
-  });
-}
-async function dbDel(k) {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).delete(k);
-    tx.oncomplete = () => res();
-    tx.onerror = () => rej(tx.error);
-  });
+  localStorage.setItem('cc_model_version', MODEL_VERSION);
+  modelCached = true;
+  return cachedTranscriber;
 }
 
-async function checkModelCache() {
-  try {
-    const v = await dbGet('model_version');
-    modelCached = (v === MODEL_VERSION);
-  } catch { modelCached = false; }
+function checkModelCache() {
+  modelCached = localStorage.getItem('cc_model_version') === MODEL_VERSION;
   updateModelUI();
 }
 checkModelCache();
@@ -992,52 +973,53 @@ function updateModelUI() {
   const badge = document.getElementById('apiBadge');
   if (badge) { badge.textContent = apiKey ? 'Set ✓' : 'Not set'; badge.className = 'sett-badge ' + (apiKey ? 'ok' : 'no'); }
   ['modelDot','settMdot'].forEach(id => { const el = document.getElementById(id); if (el) el.className = 'mdot ' + (cached ? 'cached' : 'missing'); });
-  ['modelTitle','settMtitle'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = cached ? 'Whisper Base · Downloaded ✓' : 'Not downloaded'; });
+  ['modelTitle','settMtitle'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = cached ? 'Model Base · Downloaded ✓' : 'Not downloaded'; });
   ['modelBtn','settMBtn'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = cached ? 'Up to date' : 'Download'; el.disabled = cached; } });
   const cm = document.getElementById('clearModelBtn'); if (cm) cm.style.display = cached ? 'block' : 'none';
-  const msub = document.getElementById('modelSub'); if (msub) msub.textContent = cached ? '74MB · Cached · Ready to use' : '74MB · Download once, use forever';
+  const msub = document.getElementById('modelSub'); if (msub) msub.textContent = cached ? '~280MB · Cached · Ready to use' : '~280MB · Download once, use forever';
 }
 
 async function downloadModel() {
   const bar = document.getElementById('modelPbar'), fill = document.getElementById('modelPfill');
   const btn = document.getElementById('modelBtn'), dot = document.getElementById('modelDot'), title = document.getElementById('modelTitle');
+  const sBtn = document.getElementById('settMBtn'), sDot = document.getElementById('settMdot'), sTitle = document.getElementById('settMtitle');
   if (bar) bar.style.display = 'block';
-  if (dot) dot.className = 'mdot loading';
-  if (title) title.textContent = 'Downloading...';
-  if (btn) { btn.disabled = true; btn.textContent = 'Downloading...'; }
+  [dot, sDot].forEach(el => { if (el) el.className = 'mdot loading'; });
+  [title, sTitle].forEach(el => { if (el) el.textContent = 'Downloading...'; });
+  [btn, sBtn].forEach(el => { if (el) { el.disabled = true; el.textContent = 'Downloading...'; } });
   try {
-    const resp = await fetch(MODEL_URL);
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const total = parseInt(resp.headers.get('content-length') || '77000000');
-    const reader = resp.body.getReader();
-    let received = 0; const chunks = [];
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value); received += value.length;
-      const pct = Math.round(received / total * 100);
-      if (fill) fill.style.width = pct + '%';
-      if (title) title.textContent = 'Downloading... ' + pct + '%';
-    }
-    const buf = await new Blob(chunks).arrayBuffer();
-    await dbSet('model_bin', buf); await dbSet('model_version', MODEL_VERSION);
-    modelCached = true; if (bar) bar.style.display = 'none'; updateModelUI(); showToast('Model downloaded ✓');
+    await getTranscriber(p => {
+      if (p.status === 'progress') {
+        const pct = p.progress ? Math.round(p.progress) : 0;
+        if (fill) fill.style.width = pct + '%';
+        [title, sTitle].forEach(el => { if (el) el.textContent = 'Downloading... ' + pct + '%'; });
+      }
+      if (p.status === 'ready') {
+        [title, sTitle].forEach(el => { if (el) el.textContent = 'Loading into memory...'; });
+      }
+    });
+    if (bar) bar.style.display = 'none'; updateModelUI(); showToast('Model downloaded ✓');
   } catch (e) {
     showToast('Download failed: ' + e.message); if (bar) bar.style.display = 'none';
-    if (dot) dot.className = 'mdot missing'; if (title) title.textContent = 'Download failed — try again'; if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
+    [dot, sDot].forEach(el => { if (el) el.className = 'mdot missing'; });
+    [title, sTitle].forEach(el => { if (el) el.textContent = 'Download failed — try again'; });
+    [btn, sBtn].forEach(el => { if (el) { el.disabled = false; el.textContent = 'Retry'; } });
   }
 }
 
 async function clearModel() {
-  if (!confirm('Remove the Whisper model from your browser? You can re-download anytime.')) return;
-  await dbDel('model_bin'); await dbDel('model_version'); modelCached = false; updateModelUI(); showToast('Model removed');
+  if (!confirm('Remove the model from your browser? You can re-download anytime.')) return;
+  try { await caches.delete(TRANSFORMERS_CACHE_NAME); } catch {}
+  localStorage.removeItem('cc_model_version');
+  cachedTranscriber = null; modelCached = false; updateModelUI(); showToast('Model removed');
 }
 
 function clearAll() {
   if (!confirm('Clear all CaptionCraft data? This removes your API key, cached model, and preferences.')) return;
   localStorage.removeItem('cc_apikey');
-  dbDel('model_bin').catch(() => {}); dbDel('model_version').catch(() => {});
-  modelCached = false; apiKey = '';
+  localStorage.removeItem('cc_model_version');
+  caches.delete(TRANSFORMERS_CACHE_NAME).catch(() => {});
+  cachedTranscriber = null; modelCached = false; apiKey = '';
   ['apiKeyInp','settKey'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   updateModelUI(); closeSett(); showToast('All data cleared');
 }
@@ -1128,7 +1110,7 @@ function toggleHowto() { document.getElementById('howtoPanel').classList.toggle(
 async function startTranscription() {
   if (!vFile) { showToast('Upload a video first'); return; }
   if (engine === 'api' && !apiKey) { showToast('Paste your OpenAI API key first'); return; }
-  if (engine === 'browser' && !modelCached) { showToast('Download the Whisper model first'); return; }
+  if (engine === 'browser' && !modelCached) { showToast('Download the model first'); return; }
 
   document.getElementById('transBtn-wrap').style.display = 'none';
   document.getElementById('transProgress').style.display = 'block';
@@ -1154,7 +1136,7 @@ function setTransProg(title, pct) {
 }
 
 async function transcribeViaAPI() {
-  setTransProg('Sending to Whisper API...', 30);
+  setTransProg('Sending to transcription API...', 30);
   const fd = new FormData();
   fd.append('file', vFile, vFile.name);
   fd.append('model', 'whisper-1');
@@ -1171,21 +1153,17 @@ async function transcribeViaAPI() {
 }
 
 async function transcribeViaBrowser() {
-  setTransProg('Loading Whisper engine...', 10);
+  setTransProg('Loading transcription engine...', 10);
   document.getElementById('transProgSub').textContent = 'First use takes longer — model loads from cache';
   try {
-    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
-    env.allowLocalModels = false; env.useBrowserCache = true;
     setTransProg('Loading model...', 20);
-    const transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base.en', {
-      progress_callback: p => {
-        if (p.status === 'downloading') {
-          const pct = p.progress ? Math.round(p.progress) : 0;
-          setTransProg('Downloading model... ' + pct + '%', 20 + Math.round(pct * 0.35));
-          document.getElementById('transProgSub').textContent = (p.loaded ? (p.loaded/1024/1024).toFixed(0) : '?') + 'MB of ' + (p.total ? (p.total/1024/1024).toFixed(0) : '?') + 'MB';
-        }
-        if (p.status === 'loading') setTransProg('Loading model into memory...', 58);
+    const transcriber = await getTranscriber(p => {
+      if (p.status === 'progress') {
+        const pct = p.progress ? Math.round(p.progress) : 0;
+        setTransProg('Downloading model... ' + pct + '%', 20 + Math.round(pct * 0.35));
+        document.getElementById('transProgSub').textContent = (p.loaded ? (p.loaded/1024/1024).toFixed(0) : '?') + 'MB of ' + (p.total ? (p.total/1024/1024).toFixed(0) : '?') + 'MB';
       }
+      if (p.status === 'ready') setTransProg('Loading model into memory...', 58);
     });
     setTransProg('Extracting audio...', 62);
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
@@ -1208,7 +1186,7 @@ async function transcribeViaBrowser() {
     setTransProg('Transcribing... (30–90 seconds for a 60s video)', 70);
     const sc = document.getElementById('scriptInp').value.trim();
     const result = await transcriber(trimmed, {
-      language: 'english', task: 'transcribe', return_timestamps: 'word',
+      return_timestamps: 'word',
       chunk_length_s: 30, stride_length_s: 5,
       ...(sc ? { initial_prompt: sc } : {})
     });
