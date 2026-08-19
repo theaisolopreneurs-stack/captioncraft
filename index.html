@@ -395,6 +395,15 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
 .pos-safe { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(239,68,68,.1); border-top: 1px dashed rgba(239,68,68,.5); pointer-events: none; display: none; }
 .pos-safe.show { display: block; }
 .pos-hint { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-size: 9px; font-weight: 600; color: rgba(255,255,255,.4); text-transform: uppercase; letter-spacing: .08em; pointer-events: none; }
+.color-report { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--bg2, #fafafa); font-size: 11.5px; line-height: 1.6; color: var(--ink2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-x: auto; }
+.play-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.play-btn { min-width: 92px; }
+.play-btn svg { width: 13px; height: 13px; fill: currentColor; stroke: none; }
+.scrub-time { margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink3); }
+.fs-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.fs-row .field { width: 96px; flex: 0 0 auto; }
 .pos-controls { display: flex; flex-direction: column; gap: 12px; }
 .pos-stat { font-size: 12.5px; color: var(--ink2); }
 .pos-stat strong { color: var(--ink); font-weight: 700; }
@@ -501,6 +510,41 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
       </div>
       <div class="field-hint" style="margin-top:6px">Downloaded once, cached permanently. Remove anytime below.</div>
       <button class="btn btn-danger btn-sm" id="clearModelBtn" onclick="clearModel()" style="margin-top:8px;display:none">Remove from device</button>
+    </div>
+    <div>
+      <div class="sett-section-title">Video Engine</div>
+      <div class="sett-row">
+        <div><div class="sett-row-label">HDR tone mapping</div><div class="sett-row-sub">Needs zscale + tonemap, or libplacebo</div></div>
+        <span class="sett-badge no" id="ffHdrBadge">Not checked</span>
+      </div>
+      <div style="margin-top:8px">
+        <select class="field" id="settFFEngine" onchange="onFFEnginePick(this.value)"></select>
+        <input type="text" class="field" id="settFFCore" style="margin-top:6px" spellcheck="false"
+               placeholder="ffmpeg-core.js URL" onchange="onFFCoreEdit(this.value)">
+        <div class="field-hint">
+          Which ffmpeg build to load. Press Check capabilities below to see what it can do —
+          if a build turns up that has zscale or libplacebo, the app switches to the proper
+          HDR conversion on its own, with nothing else to change.
+        </div>
+        <button class="btn btn-secondary btn-sm" id="ffCheckBtn" onclick="checkFFCaps()" style="margin-top:8px">Check capabilities</button>
+        <div id="ffCaps" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div>
+      <div class="sett-section-title">HDR export</div>
+      <div class="sett-row">
+        <div><div class="sett-row-label">Keep HDR instead of tone mapping</div><div class="sett-row-sub">Needs 10-bit encode plus a way to draw captions in HDR</div></div>
+        <span class="sett-badge no" id="hdrExportBadge">Not checked</span>
+      </div>
+      <div style="margin-top:8px">
+        <div class="field-hint">
+          Tone mapping to SDR always works and is what the burn does today. Keeping HDR needs
+          browser features that vary by machine, GPU and codec licence — this checks yours
+          rather than guessing. Load a video first and the check will use it.
+        </div>
+        <button class="btn btn-secondary btn-sm" id="hdrCheckBtn" onclick="checkHdrExport()" style="margin-top:8px">Check HDR export support</button>
+        <div id="hdrCaps" style="margin-top:8px"></div>
+      </div>
     </div>
     <div>
       <div class="sett-section-title">About</div>
@@ -690,23 +734,15 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
     </div>
 
     <div class="card" style="margin-top:12px">
-      <div class="settings-grid">
-        <div>
-          <label class="field-label">Words per line</label>
-          <div class="wpl-row">
-            <div class="wpl-btn" data-wpl="1" onclick="pickWpl(this)">1</div>
-            <div class="wpl-btn sel" data-wpl="2" onclick="pickWpl(this)">2</div>
-            <div class="wpl-btn" data-wpl="3" onclick="pickWpl(this)">3</div>
-            <div class="wpl-btn" data-wpl="4" onclick="pickWpl(this)">4</div>
-          </div>
+      <div>
+        <label class="field-label">Words per line</label>
+        <div class="wpl-row">
+          <div class="wpl-btn" data-wpl="1" onclick="pickWpl(this)">1</div>
+          <div class="wpl-btn sel" data-wpl="2" onclick="pickWpl(this)">2</div>
+          <div class="wpl-btn" data-wpl="3" onclick="pickWpl(this)">3</div>
+          <div class="wpl-btn" data-wpl="4" onclick="pickWpl(this)">4</div>
         </div>
-        <div>
-          <label class="field-label">Font size — <span id="fsLabel">52</span>px</label>
-          <div class="slider-row">
-            <input type="range" id="fsSlider" min="24" max="80" value="52" oninput="setFontSize(this.value)">
-            <span class="slider-val" id="fsVal">52</span>
-          </div>
-        </div>
+        <div class="field-hint" style="margin-top:4px">Font size lives on the position step, next to the video preview.</div>
       </div>
 
       <div style="margin-top:14px">
@@ -856,13 +892,36 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
     </div>
 
     <div class="card" style="margin-top:14px">
-      <label class="field-label" style="margin-bottom:6px">Scrub preview</label>
-      <div class="pos-preview" id="scrubPreview" style="cursor:default;margin:0 auto">
+      <label class="field-label" style="margin-bottom:6px">Video preview</label>
+      <div class="pos-preview" id="scrubPreview" style="cursor:pointer;margin:0 auto" onclick="toggleScrubPlay()">
         <video id="scrubVid" muted playsinline></video>
         <div class="pos-overlay" id="scrubOverlay"></div>
       </div>
-      <input type="range" id="scrubBar" min="0" max="100" step="0.01" value="0" style="width:100%;margin-top:10px" oninput="onScrubInput(this.value)">
-      <div class="field-hint">Drag to check caption timing, position, and color against the real video before burning. Approximate — the actual burn uses ffmpeg's renderer, which looks slightly different.</div>
+      <div class="play-row">
+        <button class="btn btn-secondary btn-sm play-btn" id="playBtn" onclick="toggleScrubPlay()" aria-label="Play">
+          <svg id="playIcon" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+          <span id="playLabel">Play</span>
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="restartScrub()" aria-label="Back to start">↺</button>
+        <button class="btn btn-secondary btn-sm" id="muteBtn" onclick="toggleScrubMute()" aria-label="Toggle sound">🔇</button>
+        <span class="scrub-time" id="scrubTime">0:00</span>
+      </div>
+      <input type="range" id="scrubBar" min="0" max="100" step="0.01" value="0" style="width:100%;margin-top:8px" oninput="onScrubInput(this.value)">
+      <div class="fs-row">
+        <label class="field-label" style="margin:0" for="fsInput">Font size</label>
+        <input type="number" class="field" id="fsInput" min="12" max="160" step="2" value="52"
+               oninput="setFontSize(this.value)" onchange="setFontSize(this.value, true)">
+        <span class="field-hint" style="margin:0">px</span>
+        <label class="field-label" style="margin:0 0 0 8px" for="outlineSel">Outline</label>
+        <select class="field" id="outlineSel" style="width:auto;flex:0 0 auto" onchange="setOutlineStrength(this.value)">
+          <option value="0">None</option>
+          <option value="0.6">Thin</option>
+          <option value="1" selected>Normal</option>
+          <option value="1.6">Heavy</option>
+        </select>
+      </div>
+      <div class="field-hint" id="wrapNote" style="display:none"></div>
+      <div class="field-hint">Play or drag to check caption timing, position, and color against the real video before burning. Approximate — the actual burn uses ffmpeg's renderer, which looks slightly different.</div>
     </div>
 
     <div class="nav-row">
@@ -907,6 +966,11 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
       </div>
     </div>
 
+    <div id="colorReport" class="color-report" style="display:none">
+      <div id="colorReportBody"></div>
+      <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="copyColorReport(this)">Copy diagnostics</button>
+    </div>
+
     <div id="burnDone" style="display:none;margin-top:10px">
       <div class="export-hero">
         <div class="export-icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
@@ -946,12 +1010,15 @@ let olColor = '#000000';
 let pillTextColor = '#FFFFFF';
 let pillBgColor = '#000000';
 let selectedFont = 'Montserrat';
+let outlineStrength = 1;   // 0 = no outline, 1 = default, 1.6 = heavy
 let modelCached = false;
 let ffmpegInstance = null;
 let ffmpegLoaded = false;
+let ffLog = [];
 
 // Position — 0,0 = center, Y positive = up
 let coordX = 0, coordY = -200;
+let posDragBound = false;
 
 // Restore API key
 if (apiKey) {
@@ -1068,6 +1135,7 @@ function goTo(n) {
   if (n === 4 && captions.length === 0) { showToast('Transcribe your video first'); return; }
   document.querySelectorAll('.sec').forEach(s => s.classList.remove('act'));
   document.getElementById('step' + n).classList.add('act');
+  if (currentStep === 5 && n !== 5) pauseScrub();   // don't keep playing off-screen
   currentStep = n; renderNav(n);
   if (n === 4) renderEditor();
   if (n === 5) initPosition();
@@ -1278,10 +1346,20 @@ function pickWpl(btn) {
   }
 }
 
-function setFontSize(v) {
-  fontSize = parseInt(v);
-  document.getElementById('fsLabel').textContent = v;
-  document.getElementById('fsVal').textContent = v;
+function setOutlineStrength(v) {
+  outlineStrength = parseFloat(v) || 0;
+  renderPosition();
+  updateScrubPreview();
+}
+
+function setFontSize(v, commit) {
+  const n = parseInt(v, 10);
+  if (!isNaN(n)) fontSize = commit ? Math.max(12, Math.min(160, n)) : n;
+  const inp = document.getElementById('fsInput');
+  // Only rewrite the box on commit, so typing "120" isn't clamped at "1".
+  if (inp && commit) inp.value = fontSize;
+  renderPosition();
+  updateScrubPreview();
 }
 
 function pickFont(card) {
@@ -1354,9 +1432,30 @@ function scrubTo(t) { const v = document.getElementById('posVid'); if (v.src) v.
 function coordsToPx(cx, cy) { return { px: vW / 2 + cx, py: vH / 2 - cy }; }
 function pxToCoords(px, py) { return { cx: Math.round(px - vW / 2), cy: Math.round(vH / 2 - py) }; }
 
+// Where the video actually renders inside its preview box. The box is a fixed
+// 9:16 frame that also grows/shrinks with the window, and the video is
+// object-fit:contain inside it — so for anything that isn't 9:16 there are
+// letterbox bars, and every overlay coordinate has to be measured against this
+// rect rather than against the box.
+function previewRect(box) {
+  const PW = box.offsetWidth || 180, PH = box.offsetHeight || 320;
+  const ar = (vW || 450) / (vH || 800);
+  let w = PW, h = PW / ar;
+  if (h > PH) { h = PH; w = PH * ar; }
+  return { left: (PW - w) / 2, top: (PH - h) / 2, w, h, scale: h / (vH || 800), PW, PH };
+}
+
 function initPosition() {
   const v = document.getElementById('posVid');
-  if (vFile && !v.src) { v.src = URL.createObjectURL(vFile); v.load(); }
+  if (vFile && !v.src) {
+    v.src = URL.createObjectURL(vFile);
+    // Real dimensions land here; the preview rect depends on them.
+    v.addEventListener('loadedmetadata', () => {
+      if (v.videoWidth) { vW = v.videoWidth; vH = v.videoHeight; }
+      renderPosition(); updateScrubPreview();
+    });
+    v.load();
+  }
   renderPosition();
 
   const sv = document.getElementById('scrubVid');
@@ -1373,17 +1472,34 @@ function initPosition() {
       updateScrubPreview();
     });
     sv.addEventListener('seeked', updateScrubPreview);
+    sv.addEventListener('pause', () => setPlayUI(false));
+    sv.addEventListener('play', () => setPlayUI(true));
+    sv.addEventListener('ended', () => { setPlayUI(false); updateScrubPreview(); });
+    sv.addEventListener('durationchange', updateScrubTime);
   }
+  const fsInp = document.getElementById('fsInput');
+  if (fsInp) fsInp.value = fontSize;
+  const olSel = document.getElementById('outlineSel');
+  if (olSel) olSel.value = String(outlineStrength);
+  const mb = document.getElementById('muteBtn');
+  if (mb && sv) mb.textContent = sv.muted ? '🔇' : '🔊';
+  setPlayUI(sv ? !sv.paused : false);
+  updateScrubTime();
   updateScrubPreview();
 
   const preview = document.getElementById('posPreview');
+  if (posDragBound) return;   // step 5 can be re-entered; bind the listeners once
+  posDragBound = true;
+  watchPreviewResize();
   let dragging = false, startX = 0, startY = 0, startCX = coordX, startCY = coordY;
   function onStart(cx, cy) { dragging = true; startX = cx; startY = cy; startCX = coordX; startCY = coordY; }
   function onMove(cx, cy) {
     if (!dragging) return;
-    const PW = preview.offsetWidth || 180, PH = preview.offsetHeight || 320;
-    coordX = Math.round(startCX + ((cx - startX) / PW) * vW);
-    coordY = Math.round(startCY - ((cy - startY) / PH) * vH);
+    // Convert the on-screen drag distance back into video pixels through the
+    // live display scale, so a drag means the same thing at any window size.
+    const { scale } = previewRect(preview);
+    coordX = Math.round(startCX + (cx - startX) / scale);
+    coordY = Math.round(startCY - (cy - startY) / scale);
     syncCoordInputs(); renderPosition();
   }
   function onEnd() { dragging = false; }
@@ -1414,23 +1530,39 @@ function applyPreset(cx, cy) {
   renderPosition();
 }
 
-function overlayPxPy(PH) {
-  const scale = PH / vH;
+// Position of the caption anchor within the preview box, in box-relative px.
+function overlayPxPy(rect) {
   const raw = coordsToPx(coordX, coordY);
-  return { px: raw.px * scale, py: raw.py * scale, scale, raw };
+  return { px: rect.left + raw.px * rect.scale, py: rect.top + raw.py * rect.scale, scale: rect.scale, raw };
 }
 
 function renderPosition() {
   const preview = document.getElementById('posPreview');
-  const PW = preview.offsetWidth || 180, PH = preview.offsetHeight || 320;
-  const { px, py, scale, raw } = overlayPxPy(PH);
+  if (!preview) return;
+  const rect = previewRect(preview);
+  const { px, py, raw } = overlayPxPy(rect);
   const ov = document.getElementById('posOverlay');
-  if (ov) { ov.style.left = px + 'px'; ov.style.top = py + 'px'; ov.style.transform = 'translate(-50%, -50%)'; ov.innerHTML = capPreviewHTML(captions[0]?.text || 'Sample caption', PH); }
+  const sample = captions[0] || { text: 'Sample caption', start: 0, end: 1 };
+  if (ov) { ov.style.left = px + 'px'; ov.style.top = py + 'px'; ov.style.transform = 'translate(-50%, -50%)'; ov.innerHTML = capPreviewHTML(sample, rect.h); }
   const guide = document.getElementById('posGuide'); if (guide) guide.style.top = py + 'px';
-  const safePx = (vH - 40) * scale;
-  const safe = document.getElementById('posSafe'); if (safe) { safe.style.height = (PH - safePx) + 'px'; safe.classList.toggle('show', (vH - raw.py) < 60); }
+  const safe = document.getElementById('posSafe');
+  if (safe) { safe.style.height = (rect.top + 40 * rect.scale) + 'px'; safe.classList.toggle('show', (vH - raw.py) < 60); }
   const cw = document.getElementById('cropWarn'); if (cw) cw.classList.toggle('show', (vH - raw.py) < 60);
   syncCoordInputs();
+  updateWrapNote();
+}
+
+// The preview boxes are fluid, so every overlay position has to be recomputed
+// whenever they change size — otherwise the px values baked in at drag time
+// stop matching what the video is showing.
+function watchPreviewResize() {
+  const redraw = () => { renderPosition(); updateScrubPreview(); };
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(redraw);
+    ['posPreview', 'scrubPreview'].forEach(id => { const el = document.getElementById(id); if (el) ro.observe(el); });
+  }
+  window.addEventListener('resize', redraw);
+  window.addEventListener('orientationchange', redraw);
 }
 
 function findActiveCaption(t) {
@@ -1442,7 +1574,7 @@ function updateScrubPreview() {
   const wrap = document.getElementById('scrubPreview');
   const overlay = document.getElementById('scrubOverlay');
   if (!v || !wrap || !overlay) return;
-  const PH = wrap.offsetHeight || 320;
+  const rect = previewRect(wrap);
   const cap = findActiveCaption(v.currentTime);
   if (!cap) { overlay.innerHTML = ''; return; }
   let activeWordIdx = 0;
@@ -1451,9 +1583,9 @@ function updateScrubPreview() {
     const idx = words.findIndex(w => v.currentTime >= w.start && v.currentTime < w.end);
     if (idx >= 0) activeWordIdx = idx;
   }
-  const { px, py } = overlayPxPy(PH);
+  const { px, py } = overlayPxPy(rect);
   overlay.style.left = px + 'px'; overlay.style.top = py + 'px'; overlay.style.transform = 'translate(-50%, -50%)';
-  overlay.innerHTML = capPreviewHTML(cap.text, PH, activeWordIdx);
+  overlay.innerHTML = capPreviewHTML(cap, rect.h, activeWordIdx);
 }
 
 function onScrubInput(val) {
@@ -1462,16 +1594,197 @@ function onScrubInput(val) {
   updateScrubPreview();
 }
 
-function capPreviewHTML(text, PH, activeWordIdx = 0) {
-  const s = Math.round(fontSize * (PH / 800)) + 'px';
-  const words = text.split(' ');
+// PREVIEW PLAYBACK
+// timeupdate only fires ~4x/sec, too coarse for word-level highlighting, so
+// drive the overlay from rAF while playing.
+function scrubFrame() {
+  const v = document.getElementById('scrubVid');
+  if (!v || v.paused || v.ended) return;
+  const bar = document.getElementById('scrubBar');
+  if (bar && document.activeElement !== bar) bar.value = v.currentTime;
+  updateScrubTime();
+  updateScrubPreview();
+  requestAnimationFrame(scrubFrame);
+}
+
+function toggleScrubPlay() {
+  const v = document.getElementById('scrubVid');
+  if (!v || !v.src) { showToast('Load a video first'); return; }
+  if (v.paused) {
+    if (v.ended || v.currentTime >= (v.duration || 0) - 0.05) v.currentTime = 0;
+    v.play().then(() => { setPlayUI(true); requestAnimationFrame(scrubFrame); })
+            .catch(e => { console.error('Preview play failed:', e); showToast('Preview could not play'); });
+  } else {
+    v.pause();
+    setPlayUI(false);
+  }
+}
+
+function pauseScrub() {
+  const v = document.getElementById('scrubVid');
+  if (v && !v.paused) { v.pause(); setPlayUI(false); }
+}
+
+function restartScrub() {
+  const v = document.getElementById('scrubVid');
+  if (!v || !v.src) return;
+  v.currentTime = 0;
+  const bar = document.getElementById('scrubBar'); if (bar) bar.value = 0;
+  updateScrubTime(); updateScrubPreview();
+}
+
+function toggleScrubMute() {
+  const v = document.getElementById('scrubVid');
+  if (!v) return;
+  v.muted = !v.muted;
+  const b = document.getElementById('muteBtn');
+  if (b) b.textContent = v.muted ? '🔇' : '🔊';
+}
+
+function setPlayUI(playing) {
+  const icon = document.getElementById('playIcon'), label = document.getElementById('playLabel');
+  if (label) label.textContent = playing ? 'Pause' : 'Play';
+  if (icon) icon.innerHTML = playing
+    ? '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
+    : '<polygon points="6 4 20 12 6 20 6 4"/>';
+}
+
+function updateScrubTime() {
+  const v = document.getElementById('scrubVid'), el = document.getElementById('scrubTime');
+  if (!v || !el) return;
+  el.textContent = fmtTime(v.currentTime || 0) + (v.duration ? ' / ' + fmtTime(v.duration) : '');
+}
+
+// SMART EDGE DETECTION
+// Everything is measured in video pixels with the same face/weight the burn
+// uses, so the wrap the preview shows is the wrap that gets burned in.
+let _measureCanvas = null;
+function measureCtxFor(px) {
+  _measureCanvas = _measureCanvas || document.createElement('canvas');
+  const ctx = _measureCanvas.getContext('2d');
+  ctx.font = `${fontWeightForSelected()} ${px}px '${selectedFont}', sans-serif`;
+  return ctx;
+}
+
+// How wide a centred caption can be before it runs off frame. Text is centred
+// on X, so it's limited by whichever side is nearer the edge.
+function maxCaptionWidth() {
+  const W = vW || 450;
+  const xPx = coordsToPx(coordX, coordY).px;
+  const m = Math.max(12, Math.round(W * 0.04));
+  return Math.max(Math.round(W * 0.25), 2 * Math.min(xPx - m, W - m - xPx));
+}
+
+// Greedy wrap. A single word wider than the frame can't be split, so it stays
+// on its own line and the caller reports it.
+function wrapItems(items, ctx, maxW, gap) {
+  const lines = [];
+  let cur = [], curW = 0;
+  items.forEach(it => {
+    const m = ctx.measureText(it.text);
+    const w = m.width;
+    const add = cur.length ? gap + w : w;
+    if (cur.length && curW + add > maxW) { lines.push({ items: cur, width: curW }); cur = []; curW = 0; }
+    // Ink ascent is what drawtext top-aligns at y; keep it for baseline math.
+    cur.push(Object.assign({}, it, { width: w, asc: m.actualBoundingBoxAscent }));
+    curW += cur.length === 1 ? w : gap + w;
+  });
+  if (cur.length) lines.push({ items: cur, width: curW });
+  return lines;
+}
+
+function captionLineHeight(fs) { return Math.round(fs * 1.22); }
+
+// Wrap one caption at video scale. Returns lines of positioned words.
+function layoutCaption(cap, fsVideo, wordGap) {
+  const ctx = measureCtxFor(fsVideo);
+  const gap = wordGap != null ? wordGap : ctx.measureText(' ').width;
+  const words = getCapWords(cap).map(w => ({
+    text: captionStyle === 'caps' ? w.text.toUpperCase() : w.text,
+    start: w.start, end: w.end
+  }));
+  const items = captionStyle === 'large' ? words.slice(0, 1) : words;
+  const maxW = maxCaptionWidth();
+  const lines = wrapItems(items, ctx, maxW, gap);
+  return { lines, gap, maxW, overflow: lines.some(l => l.width > maxW) };
+}
+
+// Tell the user when edge detection kicked in (or couldn't fix it). Debounced:
+// it re-measures every caption, and renderPosition runs on every drag frame.
+let _wrapNoteTimer = null;
+function updateWrapNote() {
+  clearTimeout(_wrapNoteTimer);
+  _wrapNoteTimer = setTimeout(computeWrapNote, 120);
+}
+
+function computeWrapNote() {
+  const el = document.getElementById('wrapNote');
+  if (!el) return;
+  if (!captions.length) { el.style.display = 'none'; return; }
+  const fsVideo = burnFontSize();
+  let wrapped = 0, tooWide = 0;
+  captions.forEach(cap => {
+    const { lines, overflow } = layoutCaption(cap, fsVideo, captionStyle === 'word' ? wordGapFor(fsVideo) : null);
+    if (lines.length > 1) wrapped++;
+    if (overflow) tooWide++;
+  });
+  if (!wrapped && !tooWide) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.textContent = tooWide
+    ? `⚠ ${tooWide} line(s) contain a single word too wide for the frame at this size — reduce the font size.`
+    : `Edge detection: ${wrapped} caption(s) will be split across lines to stay inside the frame.`;
+}
+
+// Font size in video pixels — the burn and every preview derive from this.
+function burnFontSize() {
+  const fs = Math.round(fontSize * ((vH || 800) / 800));
+  return captionStyle === 'large' ? Math.round(fs * 1.4) : fs;
+}
+
+function wordGapFor(fs) {
+  const b = outlineWidth(fs);
+  return Math.max(Math.round(fs * 0.28), b * 2 + Math.round(fs * 0.06));
+}
+
+// dispH = height the video is actually drawn at, so preview type scales the
+// same way the burned-in type will.
+function capPreviewHTML(cap, dispH, activeWordIdx = 0) {
+  const scale = dispH / (vH || 800);
+  const fsVideo = burnFontSize();
+  const gap = captionStyle === 'word' ? wordGapFor(fsVideo) : null;
+  const { lines } = layoutCaption(cap, fsVideo, gap);
+  const s = (fsVideo * scale).toFixed(1) + 'px';
+  const lh = (captionLineHeight(fsVideo) * scale).toFixed(1) + 'px';
+  const fw = fontWeightForSelected();
+  // Match the burned outline: same proportion of the type size, and stroke
+  // behind the fill the way drawtext composites it.
+  const strokePx = outlineWidth(fsVideo) * scale;
+  const fam = `font-family:'${selectedFont}',sans-serif`;
+  const outlined = c => strokePx <= 0 ? '' : `-webkit-text-stroke:${Math.max(0.5, strokePx).toFixed(1)}px ${c};paint-order:stroke fill`;
+  const wrapLines = inner => `<div style="text-align:center;line-height:${lh};font-size:${s};font-weight:${fw};${fam}">${inner}</div>`;
+
+  let idx = 0;   // flat word index across lines, for the highlight
+  if (captionStyle === 'word') {
+    const body = lines.map(line => {
+      const spans = line.items.map((it, i) => {
+        const active = idx++ === activeWordIdx;
+        const mr = i === line.items.length - 1 ? 0 : (gap * scale).toFixed(1);
+        return `<span style="display:inline-block;margin-right:${mr}px;${active ? 'color:' + hlColor : 'color:#fff'}">${esc(it.text)}</span>`;
+      }).join('');
+      return `<div style="white-space:nowrap">${spans}</div>`;
+    }).join('');
+    return wrapLines(`<div style="${outlined('#000')}">${body}</div>`);
+  }
+
+  const lineTexts = lines.map(l => l.items.map(i => i.text).join(' '));
+  const rows = (style) => lineTexts.map(t => `<div style="white-space:nowrap;${style}">${esc(t)}</div>`).join('');
   switch (captionStyle) {
-    case 'word': return `<span style="font-size:${s};font-weight:800;color:#fff;font-family:'${selectedFont}',sans-serif">${words.map((w,i)=>`<span style="${i===activeWordIdx?'color:'+hlColor:''}">${w}</span>`).join(' ')}</span>`;
-    case 'white': return `<span style="font-size:${s};font-weight:800;color:${pillTextColor};background:${pillBgColor};padding:2px 8px;border-radius:4px;font-family:'${selectedFont}',sans-serif">${text}</span>`;
-    case 'caps': return `<span style="font-size:${s};font-weight:900;color:#fff;letter-spacing:.08em;text-transform:uppercase;font-family:'${selectedFont}',sans-serif">${text}</span>`;
-    case 'large': return `<span style="font-size:${Math.round(fontSize*1.4*(PH/800))}px;font-weight:900;color:${hlColor};font-family:'${selectedFont}',sans-serif">${words[0]||text}</span>`;
-    case 'outline': return `<span style="font-size:${s};font-weight:900;color:${hlColor};-webkit-text-stroke:2px ${olColor};paint-order:stroke fill;font-family:'${selectedFont}',sans-serif">${text}</span>`;
-    default: return `<span style="font-size:${s};color:#fff">${text}</span>`;
+    case 'white':   return wrapLines(lineTexts.map(t =>
+                      `<div><span style="display:inline-block;white-space:nowrap;color:${pillTextColor};background:${pillBgColor};padding:2px 8px;border-radius:4px">${esc(t)}</span></div>`).join(''));
+    case 'caps':    return wrapLines(rows(`color:#fff;letter-spacing:.08em;${outlined('#000')}`));
+    case 'large':   return wrapLines(rows(`color:${hlColor};${outlined('#000')}`));
+    case 'outline': return wrapLines(rows(`color:${hlColor};${outlined(olColor)}`));
+    default:        return wrapLines(rows('color:#fff'));
   }
 }
 
@@ -1486,6 +1799,7 @@ function renderBurnStep() {
   document.getElementById('burnDone').style.display = 'none';
   document.getElementById('burnBtn').disabled = false;
   document.getElementById('burnFill').classList.remove('done');
+  const cr = document.getElementById('colorReport'); if (cr) cr.style.display = 'none';
 }
 
 function updateOutPreview() {
@@ -1497,22 +1811,930 @@ function getOutName() {
   return (document.getElementById('outName')?.value.trim()||'captioned').replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_-]/g,'')||'captioned';
 }
 
+// ---------------------------------------------------------------------------
+// ffmpeg engine
+//
+// The whole HDR colour problem comes down to which filters the wasm core was
+// built with: with zscale+tonemap present, conversionPlans() picks the proper
+// linearise -> tone map -> bt709 path and every approximation below it stops
+// being used. The stock 0.11 core has neither, so the core is made swappable
+// here and its capabilities are readable from Settings — trying a different
+// build is the cheapest possible experiment.
+//
+// 0.11 and 0.12 have incompatible APIs (run/FS vs exec/writeFile, sync vs
+// async, global FFmpeg vs FFmpegWASM), so both are wrapped in one adapter and
+// the rest of the app only ever sees the adapter. Everything is async, which
+// 0.11 doesn't need but 0.12 does.
+// ---------------------------------------------------------------------------
+const FF_ENGINES = {
+  '0.11': {
+    label: 'ffmpeg.wasm 0.11 (bundled)',
+    lib: null, // loaded by the <script> tag in <head>
+    core: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+  },
+  '0.12': {
+    label: 'ffmpeg.wasm 0.12',
+    lib: 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js',
+    core: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+    classWorker: 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/814.ffmpeg.js',
+  },
+  '0.12-mt': {
+    label: 'ffmpeg.wasm 0.12 multi-thread',
+    lib: 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js',
+    core: 'https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/umd/ffmpeg-core.js',
+    classWorker: 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/814.ffmpeg.js',
+    mt: true,
+  },
+};
+const ffEngineId = () => localStorage.getItem('cc_ff_engine') || '0.11';
+const ffCoreURL = () => localStorage.getItem('cc_ff_core') || FF_ENGINES[ffEngineId()].core;
+
+// Switching build invalidates the loaded instance and its probed capabilities.
+function setFFEngine(id, coreURL) {
+  localStorage.setItem('cc_ff_engine', id);
+  if (coreURL === undefined) localStorage.removeItem('cc_ff_core');
+  else localStorage.setItem('cc_ff_core', coreURL);
+  try { ffmpegInstance?.terminate?.(); } catch(e) {}
+  ffmpegInstance = null; ffmpegLoaded = false; ffFilters = null; ffCaps = null;
+  renderFFSettings();
+}
+
+function loadScriptOnce(src) {
+  if (!src) return Promise.resolve();
+  if (document.querySelector(`script[src="${src}"]`)) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+// 0.12 runs the core in a worker, so a cross-origin core URL has to be
+// rehosted as a blob. @ffmpeg/util does this too; inlined to avoid the dep.
+async function toBlobURL(url, type) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} fetching ${url}`);
+  return URL.createObjectURL(new Blob([await r.arrayBuffer()], { type }));
+}
+
+const toUint8 = async src =>
+  src instanceof Uint8Array ? src : new Uint8Array(await (src.arrayBuffer ? src.arrayBuffer() : src));
+
+function onBurnProgress(ratio) {
+  if (!(ratio > 0)) return;
+  const pct = Math.round(ratio * 100);
+  const fill = document.getElementById('burnFill'), sub = document.getElementById('burnSub');
+  if (fill) fill.style.width = Math.max(40, pct) + '%';
+  if (sub) sub.textContent = 'Burning captions... ' + pct + '%';
+}
+
+const captureLog = ({ message }) => { ffLog.push(message); if (ffLog.length > 4000) ffLog.shift(); };
+
 async function loadFFmpeg() {
   if (ffmpegLoaded) return ffmpegInstance;
+  const id = ffEngineId();
+  const eng = FF_ENGINES[id] || FF_ENGINES['0.11'];
+  const core = ffCoreURL();
+  await loadScriptOnce(eng.lib);
+  ffmpegInstance = id.startsWith('0.12') ? await load012(core, eng) : await load011(core);
+  ffmpegInstance.engineId = id;
+  ffmpegLoaded = true;
+  return ffmpegInstance;
+}
+
+async function load011(corePath) {
   const { createFFmpeg } = FFmpeg;
-  const ff = createFFmpeg({
-    log: true,
-    corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
-    progress: ({ ratio }) => {
-      if (ratio > 0) {
-        const pct = Math.round(ratio * 100);
-        document.getElementById('burnFill').style.width = Math.max(40, pct) + '%';
-        document.getElementById('burnSub').textContent = 'Burning captions... ' + pct + '%';
-      }
-    }
-  });
+  const ff = createFFmpeg({ log: true, corePath, progress: ({ ratio }) => onBurnProgress(ratio) });
+  // The `logger` option is destructured and then never used by
+  // @ffmpeg/ffmpeg 0.11.6 — setLogger is the only thing that actually
+  // installs it. Without this, nothing is ever captured.
+  ff.setLogger(captureLog);
   await ff.load();
-  ffmpegLoaded = true; ffmpegInstance = ff; return ff;
+  return {
+    gen: '0.11', raw: ff,
+    exec: args => ff.run(...args),
+    writeFile: async (n, d) => ff.FS('writeFile', n, await toUint8(d)),
+    readFile: async n => ff.FS('readFile', n),
+    deleteFile: async n => ff.FS('unlink', n),
+    fileSize: async n => ff.FS('stat', n).size,
+    terminate: () => { try { ff.exit(); } catch(e) {} },
+  };
+}
+
+async function load012(coreURL, eng) {
+  const Ctor = window.FFmpegWASM?.FFmpeg;
+  if (!Ctor) throw new Error('0.12 library did not expose FFmpegWASM.FFmpeg');
+  const ff = new Ctor();
+  ff.on('log', captureLog);
+  ff.on('progress', ({ progress }) => onBurnProgress(progress));
+  const opts = {
+    coreURL: await toBlobURL(coreURL, 'text/javascript'),
+    wasmURL: await toBlobURL(coreURL.replace(/\.js$/, '.wasm'), 'application/wasm'),
+  };
+  // 0.12 spawns its OWN worker from a code-split chunk sitting next to the
+  // library, and `new Worker()` refuses a cross-origin URL outright. Loading
+  // the library from a CDN therefore always fails with
+  //   Failed to construct 'Worker': Script at '.../814.ffmpeg.js'
+  //   cannot be accessed from origin '...'
+  // classWorkerURL is the escape hatch: fetch that chunk ourselves and hand it
+  // over as a blob, which counts as same-origin. The chunk's hashed name can
+  // change between releases — if the error names a different file, put that
+  // name in classWorker below.
+  if (eng.classWorker) opts.classWorkerURL = await toBlobURL(eng.classWorker, 'text/javascript');
+  // The MT core additionally pulls a worker script alongside the wasm.
+  if (eng.mt) opts.workerURL = await toBlobURL(coreURL.replace(/\.js$/, '.worker.js'), 'text/javascript');
+  await ff.load(opts);
+  return {
+    gen: '0.12', raw: ff,
+    exec: args => ff.exec(args),
+    writeFile: async (n, d) => ff.writeFile(n, await toUint8(d)),
+    readFile: n => ff.readFile(n),
+    deleteFile: n => ff.deleteFile(n),
+    // 0.12 has no stat; listDir reports sizes for the working directory.
+    fileSize: async n => {
+      const entry = (await ff.listDir('/')).find(e => e.name === n);
+      return entry ? (entry.size ?? 1) : 0;
+    },
+    terminate: () => { try { ff.terminate(); } catch(e) {} },
+  };
+}
+
+// Inspect the source so we can encode something every player can open.
+// Phone footage is often 10-bit HDR (HLG/PQ); re-encoding it without forcing
+// 8-bit yuv420p yields a High 10 profile MP4 that Windows can't play, and one
+// that looks washed out anywhere the HDR transfer isn't converted.
+async function probeInput(ff, name = 'input.mp4') {
+  ffLog = [];
+  try { await ff.exec(['-i', name, '-t', '0.05', '-f', 'null', '-']); } catch(e) { console.warn('probe failed', e); }
+  const log = ffLog.join('\n');
+  const vLine = (log.match(/Stream #[^\n]*Video:[^\n]*/) || [''])[0];
+  const aLine = (log.match(/Stream #[^\n]*Audio:[^\n]*/) || [''])[0];
+
+  // ffmpeg prints the pixel format followed by its colour tags, e.g.
+  //   yuv420p10le(tv, bt2020nc/bt2020/arib-std-b67)
+  //   yuv420p(tv, bt709)
+  const pf = vLine.match(/,\s*((?:yuv|yuvj|nv|p0|gbr)[a-z0-9]*)\s*(?:\(([^)]*)\))?/i) || [];
+  const pixFmt = pf[1] || '';
+  const tags = (pf[2] || '').split(/,\s*/).map(s => s.trim()).filter(Boolean);
+  const spec = tags.find(t => t.includes('/')) || tags.find(t => /^(bt|smpte|iec|arib|unknown)/.test(t)) || '';
+  const bits = spec.includes('/') ? spec.split('/') : [spec, spec, spec];
+  const known = v => v && v !== 'unknown' ? v : null;
+
+  const info = {
+    hasAudio: !!aLine,
+    audioIsAac: /Audio:\s*aac/i.test(aLine),
+    pixFmt,
+    tenBit: /1[02]le|1[02]be|p010/.test(pixFmt),
+    range: tags.includes('pc') || tags.includes('full') ? 'pc' : (tags.includes('tv') || tags.includes('limited') ? 'tv' : null),
+    matrix: known(bits[0]),
+    primaries: known(bits[1]),
+    trc: known(bits[2]),
+  };
+  // HDR transfer curves. These are the ones that need real conversion — simply
+  // re-tagging them as bt709 is what makes an export look bright and flat.
+  info.hdrTrc = /smpte2084|arib-std-b67/.test(info.trc || '') ? info.trc : null;
+  info.wideGamut = /bt2020/.test(info.primaries || '') || /bt2020/.test(info.matrix || '');
+  info.needsConvert = !!(info.hdrTrc || info.wideGamut);
+  // Static HDR metadata, carried as stream side data rather than in the tags
+  // above. It matters here for the opposite of the usual reason: on an SDR
+  // export it must NOT survive. A file tagged bt709 that still advertises a
+  // 1000-nit mastering display or a Dolby Vision RPU can make a player
+  // re-apply HDR rendering to pixels we already tone mapped — which produces
+  // exactly the washed-out grey image that HDR guides warn about.
+  info.hdrMeta = [
+    /Mastering display metadata/i.test(log) ? 'mastering display' : null,
+    /Content light level/i.test(log) ? 'MaxCLL/MaxFALL' : null,
+    /DOVI configuration record|Dolby Vision/i.test(log) ? 'Dolby Vision RPU' : null,
+  ].filter(Boolean);
+  info.streamLine = vLine;
+  console.log('Video stream (' + name + '):', vLine || '(not detected)', info);
+  return info;
+}
+
+// Neutralise HDR side data left in the exported MP4.
+//
+// probeInput already detects this; the export can be perfectly tone mapped and
+// correctly tagged bt709 and STILL carry a mastering-display box saying the
+// content was graded for 1000 nits, or a Dolby Vision configuration record.
+// QuickTime, Photos and Windows read those and re-apply HDR rendering on top
+// of pixels that have already been mapped down — which is the washed-out grey
+// image this whole path exists to avoid. ffmpeg copies them across from the
+// source stream and offers no flag to drop them, so they get handled here.
+//
+// The boxes are renamed to `free` rather than removed. `free` is the ISO-BMFF
+// "ignore me" box, so every parser skips it, and because the rename is the
+// same four bytes in the same place the file length never changes — which
+// matters, since with +faststart the moov sits before the mdat and shrinking
+// it would invalidate every chunk offset in stco.
+const HDR_SIDE_DATA_BOXES = [
+  'mdcv',  // Mastering Display Colour Volume
+  'clli',  // Content Light Level Info
+  'SmDm',  // QuickTime-flavoured mastering display, written by the mov muxer
+  'CoLL',  // QuickTime-flavoured content light level
+  'dvcC', 'dvvC', 'dvwC',  // Dolby Vision configuration records
+];
+// Only these are descended into. Walking the whole file blind would match the
+// four-byte patterns inside mdat's compressed payload and corrupt the video.
+const MP4_CONTAINERS = ['moov', 'trak', 'mdia', 'minf', 'stbl'];
+// Sample entries carry a fixed-size header before their child boxes: 8 box
+// header + 8 SampleEntry + 70 VisualSampleEntry fields.
+const VISUAL_SAMPLE_ENTRIES = ['avc1', 'avc3', 'hvc1', 'hev1', 'mp4v', 'av01'];
+
+function stripHdrSideData(bytes) {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const removed = [];
+  const type = at => String.fromCharCode(u8[at + 4], u8[at + 5], u8[at + 6], u8[at + 7]);
+
+  function walk(start, end, depth) {
+    let at = start;
+    // A malformed or truncated box would otherwise spin here; bail instead of
+    // hanging the tab, and leave the file untouched.
+    while (at + 8 <= end && depth < 12) {
+      let size = dv.getUint32(at);
+      const t = type(at);
+      let head = 8;
+      if (size === 1) {
+        if (at + 16 > end) break;
+        const hi = dv.getUint32(at + 8), lo = dv.getUint32(at + 12);
+        size = hi * 4294967296 + lo;
+        head = 16;
+      } else if (size === 0) {
+        size = end - at;
+      }
+      if (size < head || at + size > end) break;
+      if (HDR_SIDE_DATA_BOXES.includes(t)) {
+        u8[at + 4] = 0x66; u8[at + 5] = 0x72; u8[at + 6] = 0x65; u8[at + 7] = 0x65; // 'free'
+        removed.push(t);
+      } else if (MP4_CONTAINERS.includes(t)) {
+        walk(at + head, at + size, depth + 1);
+      } else if (t === 'stsd') {
+        // version/flags + entry_count, then the sample entries themselves.
+        walk(at + head + 8, at + size, depth + 1);
+      } else if (VISUAL_SAMPLE_ENTRIES.includes(t)) {
+        walk(at + head + 78, at + size, depth + 1);
+      }
+      at += size;
+    }
+  }
+
+  try {
+    walk(0, u8.length, 0);
+  } catch(e) {
+    // A parse failure must never cost the user their export: the bytes are
+    // only ever modified in place by the rename above, so whatever was already
+    // neutralised stays neutralised and the rest is left alone.
+    console.warn('HDR side-data scrub stopped early:', e);
+  }
+  if (removed.length) console.log('Neutralised HDR side data boxes:', removed.join(', '));
+  return { data: u8, removed };
+}
+
+// Show source vs export colour properties after a burn. A brightness or hue
+// shift always shows up as a difference between these two lines.
+function showColorReport(inInfo, outInfo, plan, attempts = [], scrubbed = []) {
+  const el = document.getElementById('colorReport');
+  const body = document.getElementById('colorReportBody');
+  if (!el || !body) return;
+  const differs = colorSummary(inInfo) !== colorSummary(outInfo);
+  const srcMeta = (inInfo && inInfo.hdrMeta) || [];
+  const outMeta = (outInfo && outInfo.hdrMeta) || [];
+  el.style.display = 'block';
+  body.innerHTML =
+    `<div><strong>Source:</strong> ${esc(colorSummary(inInfo))}</div>` +
+    `<div><strong>Export:</strong> ${esc(colorSummary(outInfo))}</div>` +
+    `<div><strong>Colour handling:</strong> ${esc(plan.name)} — ${esc(plan.note || '')}</div>` +
+    (srcMeta.length ? `<div><strong>Source HDR metadata:</strong> ${esc(srcMeta.join(', '))}</div>` : '') +
+    (outMeta.length
+      ? `<div style="margin-top:4px">The export still carries ${esc(outMeta.join(', '))}. It is tone mapped SDR, so that metadata should not be there — some players will re-apply HDR rendering and wash it out.</div>`
+      : '') +
+    (scrubbed.length
+      ? `<div style="margin-top:4px">Stripped from the export: ${esc(scrubbed.join(', '))} — left in place, these make some players re-apply HDR rendering to already tone mapped pixels.</div>`
+      : '') +
+    // The loud case: an HDR source that reached `passthrough` was never tone
+    // mapped at all. The file plays, so nothing looks broken — it just comes
+    // out bright and flat. Say so instead of letting it pass as normal.
+    (inInfo && inInfo.hdrTrc && plan.name === 'passthrough'
+      ? `<div style="margin-top:4px"><strong>This HDR video was not converted.</strong> Every colour plan failed, so the export carries the source's HDR signal untouched — it will look bright and washed out. The reasons are listed below.</div>`
+      : '') +
+    (attempts.length
+      ? `<div style="margin-top:4px"><strong>Plans tried and rejected:</strong></div>` +
+        attempts.map(a => `<div>· ${esc(a.name)} — ${esc(a.reason)}</div>`).join('')
+      : '') +
+    (differs ? '<div style="margin-top:4px">The two differ — if the export looks wrong, send these lines along.</div>' : '');
+  // Plain-text twin of the panel, so the whole thing is one click to hand over.
+  lastColorReport = [
+    'Source:          ' + colorSummary(inInfo),
+    'Export:          ' + colorSummary(outInfo),
+    'Colour handling: ' + plan.name + ' - ' + (plan.note || ''),
+    'Source stream:   ' + ((inInfo && inInfo.streamLine) || 'not detected'),
+    'Export stream:   ' + ((outInfo && outInfo.streamLine) || 'not detected'),
+    'Source HDR metadata: ' + (srcMeta.join(', ') || 'none'),
+    'Export HDR metadata: ' + (outMeta.join(', ') || 'none'),
+    'Stripped from export: ' + (scrubbed.join(', ') || 'none'),
+    'Engine:          ' + ffEngineId() + ' (' + ffCoreURL() + ')',
+    'Filters:         ' + JSON.stringify(ffFilters || {}),
+    'Plans rejected:  ' + (attempts.length
+      ? '\n' + attempts.map(a => '  - ' + a.name + ': ' + a.reason).join('\n')
+      : 'none, first plan worked'),
+  ].join('\n');
+  console.log('Colour report\n' + lastColorReport);
+}
+
+let lastColorReport = '';
+async function copyColorReport(btn) {
+  try {
+    await navigator.clipboard.writeText(lastColorReport);
+    btn.textContent = 'Copied';
+  } catch(e) {
+    // Clipboard is blocked in some contexts; fall back to a selectable dump.
+    console.log(lastColorReport);
+    btn.textContent = 'See console';
+  }
+  setTimeout(() => { btn.textContent = 'Copy diagnostics'; }, 2000);
+}
+
+// Compact human-readable colour description, for the diagnostics panel.
+function colorSummary(info) {
+  if (!info) return 'unknown';
+  const range = info.range === 'pc' ? 'full range' : info.range === 'tv' ? 'limited range' : 'range unset';
+  const tags = [info.matrix, info.primaries, info.trc].filter(Boolean).join('/') || 'untagged';
+  return `${info.pixFmt || '?'} · ${range} · ${tags}`;
+}
+
+// Which colour-conversion filters this ffmpeg build actually has. ffmpeg.wasm
+// ships a reduced build, so tone mapping may simply not be available.
+let ffFilters = null;
+async function availableFilters(ff) {
+  if (ffFilters) return ffFilters;
+  ffLog = [];
+  try { await ff.exec(['-hide_banner', '-filters']); } catch(e) { console.warn('filter list failed', e); }
+  const log = ffLog.join('\n');
+  ffFilters = {
+    zscale: /\bzscale\b/.test(log),
+    tonemap: /\btonemap\b/.test(log),
+    colorspace: /\bcolorspace\b/.test(log),
+    curves: /\bcurves\b/.test(log),
+    lutyuv: /\blutyuv\b/.test(log),
+    libplacebo: /\blibplacebo\b/.test(log),
+    lut3d: /\blut3d\b/.test(log),
+    setparams: /\bsetparams\b/.test(log),
+    drawtext: /\bdrawtext\b/.test(log),
+  };
+  ffFilters._count = (log.match(/^ [.TSC]{3} /gm) || []).length;
+  console.log('ffmpeg colour filters available:', ffFilters);
+  return ffFilters;
+}
+
+// Full capability read for the Settings panel. Deliberately separate from
+// availableFilters(): this also lists encoders, which the burn path never
+// needs, and it is what answers "is this core worth switching to".
+let ffCaps = null;
+async function probeCapabilities() {
+  const ff = await loadFFmpeg();
+  const filters = await availableFilters(ff);
+  ffLog = [];
+  try { await ff.exec(['-hide_banner', '-encoders']); } catch(e) { console.warn('encoder list failed', e); }
+  const elog = ffLog.join('\n');
+  ffCaps = {
+    engine: ffEngineId(),
+    core: ffCoreURL(),
+    gen: ff.gen,
+    filters,
+    encoders: {
+      libx264: /\blibx264\b/.test(elog),
+      libx265: /\blibx265\b/.test(elog),
+      libvpx_vp9: /\blibvpx-vp9\b/.test(elog),
+      libaom_av1: /\blibaom-av1\b/.test(elog),
+      aac: /\baac\b/.test(elog),
+    },
+  };
+  // The question this whole panel exists to answer: given an HDR source, which
+  // plan would actually run?
+  ffCaps.hdrPlan = conversionPlans(
+    { hdrTrc: 'arib-std-b67', wideGamut: true, needsConvert: true, tenBit: true, range: 'tv' },
+    filters
+  )[0];
+  // The 3D LUT needs nothing but lut3d, so a build with it gets the reference
+  // conversion even without zscale or libplacebo.
+  ffCaps.referenceLut = !!filters.lut3d;
+  ffCaps.proper = !!filters.lut3d || !!(filters.zscale && filters.tonemap) || !!filters.libplacebo;
+  console.log('ffmpeg capabilities:', ffCaps);
+  return ffCaps;
+}
+
+// Conversion strategies, best first. Each returns the video filter prefix that
+// runs BEFORE the caption drawing, plus the colour tags the result should
+// carry. Tagging output bt709 is only honest once the pixels have actually
+// been converted to bt709 — otherwise the player stretches HDR data into an
+// SDR curve and the export comes out bright and flat.
+// HDR -> SDR tone maps.
+//
+// This build has no zscale, so ffmpeg cannot linearise an HDR transfer itself.
+// These map the HDR signal to a bt709 signal directly:
+//
+//   1. invert the HDR OETF/EOTF to get light
+//   2. normalise so HDR diffuse white becomes SDR white
+//      (HLG: 75% signal, which is 203 nits on a 1000-nit display;
+//       PQ: 203 nits, per BT.2408)
+//   3. roll off anything above it with a soft knee instead of clipping
+//   4. re-encode for the display that will show the result
+//
+// THE SHOULDER. This is where blown-out sunlight comes from, so it gets the
+// long comment.
+//
+// After step 3 we hold display light normalised so diffuse white is 1.0. But
+// the signal does not stop there: HLG peak is 4.92x diffuse white and PQ peak
+// is 49x, and all of that has to land inside 0..1. The rolloff that does the
+// squeezing used to be an exponential knee in LINEAR light, starting at 0.75
+// of diffuse white:
+//
+//     o = 1 - (1-k)*exp(-(y-k)/(1-k))     with k = 0.75
+//
+// Its decay length is locked to (1-k) by the requirement that the slope be
+// continuous at the knee, so with k=0.75 it decays over 0.25 and is fully
+// saturated by y=1.5. Everything from there to peak - 3.4x more light, well
+// over a stop and a half - got nothing. Measured in 8-bit limited range:
+// diffuse white landed at 226.4, 2x diffuse white at 234.7, and peak at 235.
+// The entire highlight range was 8.6 code values, and anything above ~2x was
+// pinned at 235. That is why bright sun, skies and white clothing came out as
+// one flat blob while the rest of the frame merely looked dull. No choice of k
+// fixes it: an exponential shoulder that keeps slope 1 at the knee cannot span
+// 5:1, because the two constraints are the same number.
+//
+// So the rolloff moved out of linear light and into the DISPLAY-ENCODED domain
+// - after the 1/2.4 - where the 4.92:1 linear ratio has already been squashed
+// to 1.94:1 and a well-behaved curve can actually cover it. Below the knee the
+// mapping is the identity, so shadows and mids come through numerically exact,
+// exactly as before. Above it, a cubic Hermite spline runs from (K,K) with
+// slope 1 to (VEND,1) with slope 0:
+//
+//     t = (v-K)/(VEND-K),  o = K + (1-K)*(a*t^3 + b*t^2 + c*t)
+//     c = (VEND-K)/(1-K),  a = c-2,  b = 3-2c
+//
+// K=0.6 and VEND=4^(1/2.4)=1.7818, i.e. the shoulder tops out at 4x diffuse
+// white (~812 nits) and clips above that. Those two are not free: a cubic with
+// zero terminal slope is only monotone for c<=3, and c=2.954 here, so pushing
+// VEND or K higher makes the curve fold back on itself and posterise. 4x is
+// what the constraint allows, and it covers where consumer HLG and PQ actually
+// put their speculars.
+//
+// Result, same 8-bit measurement: diffuse white 209.0, 2x diffuse white 228.6,
+// peak 235 - 26 code values of highlight instead of 8.6, and nothing pinned
+// until 4x. Diffuse white sits ~17 code values lower than before, which is the
+// price of the headroom and is the correct trade: that range was previously
+// being spent on tones the eye reads as "white" either way.
+//
+// Step 4 is where this used to go wrong in the other direction. Steps 1-3
+// leave us holding DISPLAY light, but the curve applied was the bt709 OETF -
+// the *camera* curve, which expects SCENE light. Pairing the bt709 OETF with
+// the bt709 EOTF (BT.1886, gamma 2.4) is what produces the ~1.2 end-to-end
+// system gamma of the SDR chain, so feeding it display light applied that
+// rendering a second time. The fix is to invert the display's own EOTF
+// instead: v = L^(1/2.4). That is the pow(...,0.41666667) below, and the
+// shoulder is applied to its output.
+//
+// The luma curve is applied to the LUMA PLANE ONLY, via lutyuv. The same tone
+// map run through the `curves` filter operates on R, G and B independently,
+// which pushes whichever channel is dominant harder than the others: measured
+// on a warm ramp that shifted hue by -32% (visibly orange skin tones).
+//
+// But luma-only is only half a conversion: reshaping Y' while leaving Cb/Cr
+// alone changes chroma RELATIVE to luma, i.e. saturation, everywhere the curve
+// is not a pure gain. So each transfer also carries a chroma gain, applied
+// about the neutral point, that tracks the luma curve.
+//
+// For HLG the compensation is near-exact: below 50pc signal the HLG OETF is
+// x^2/3, so the whole conversion collapses to a pure gain of 1.1215 on the
+// encoded signal - and a matching gain on Cb/Cr reproduces it exactly. With
+// the new shoulder the required gain runs 1.122 in shadow to 1.175 at diffuse
+// white, so 1.14 holds saturation within about 3pc. (It was 1.16 for the old
+// shoulder, which expanded the mid-highs instead of compressing them.)
+//
+// PQ has no such luck: its mapping is steeply non-linear (the required gain
+// runs 0.95 in deep shadow to 1.52 at diffuse white), so a single factor can
+// only centre the error, not remove it. 1.22 lands mid-grey and skin close and
+// leaves the extremes off either way. Doing better needs per-pixel chroma
+// scaling, which needs zscale/tonemap - not in this build.
+//
+// minval/maxval come from lutyuv, so these work at any bit depth.
+const HDR_TONE_MAPS = {
+  'arib-std-b67': {
+    label: 'HLG',
+    // inverse OETF -> 1.2 system gamma -> normalise to diffuse white -> 1/2.4 -> shoulder
+    luma: "st(0,clip((val-minval)/(maxval-minval),0,1));st(1,if(lte(ld(0),0.5),ld(0)*ld(0)/3,(exp((ld(0)-0.55991073)/0.17883277)+0.28466892)/12));st(2,pow(ld(1),1.2)/0.2032);st(3,pow(ld(2),0.41666667));st(4,clip((ld(3)-0.6)/1.1817974,0,1));st(5,if(lte(ld(3),0.6),ld(3),0.6+0.4*(ld(4)*(2.9544936+ld(4)*(-2.9089872+ld(4)*0.9544936)))));minval+(maxval-minval)*clip(ld(5),0,1)",
+    chromaGain: 1.14,
+    satNote: 'saturation tracked to luma',
+  },
+  'smpte2084': {
+    label: 'PQ',
+    // ST 2084 inverse EOTF -> nits -> normalise to 203-nit reference white -> 1/2.4 -> shoulder
+    luma: "st(0,clip((val-minval)/(maxval-minval),0,1));st(1,pow(ld(0),0.012683313515656));st(2,10000*pow(max(ld(1)-0.8359375,0)/(18.8515625-18.6875*ld(1)),6.277394636015326)/203);st(3,pow(ld(2),0.41666667));st(4,clip((ld(3)-0.6)/1.1817974,0,1));st(5,if(lte(ld(3),0.6),ld(3),0.6+0.4*(ld(4)*(2.9544936+ld(4)*(-2.9089872+ld(4)*0.9544936)))));minval+(maxval-minval)*clip(ld(5),0,1)",
+    chromaGain: 1.22,
+    satNote: 'saturation approximated (single chroma gain)',
+  },
+};
+
+// Cb/Cr are difference signals, so the gain is taken about their neutral point
+// — (minval+maxval)/2, which is 128 at 8-bit and 512 at 10-bit. That is the
+// same thing as gaining the encoded R'G'B' about black, which is what the luma
+// curve does to Y'.
+function chromaLut(gain) {
+  return `clip((val-(minval+maxval)/2)*${gain}+(minval+maxval)/2,minval,maxval)`;
+}
+
+// Same tone maps as lookup tables for the `curves` filter — only used if
+// lutyuv is unavailable. Being per-channel, this form skews hue as described
+// above, but it does get saturation right for free, so it needs no chroma gain.
+const HDR_CURVES = {
+  'arib-std-b67': "0/0.0000 0.063/0.0701 0.125/0.1402 0.188/0.2103 0.25/0.2804 0.313/0.3505 0.375/0.4206 0.438/0.4907 0.5/0.5608 0.563/0.6379 0.625/0.7213 0.688/0.8048 0.75/0.8815 0.813/0.9435 0.875/0.9836 0.938/0.9991 1/1.0000",
+  'smpte2084':    "0/0.0000 0.063/0.0420 0.125/0.0880 0.188/0.1452 0.25/0.2164 0.313/0.3050 0.375/0.4148 0.438/0.5510 0.5/0.7083 0.563/0.8475 0.625/0.9478 0.688/0.9949 0.75/1.0000 0.813/1.0000 0.875/1.0000 0.938/1.0000 1/1.0000",
+};
+
+// ---------------------------------------------------------------------------
+// REFERENCE PATH: the whole conversion baked into a 3D LUT.
+//
+// Everything above is a workaround for one missing filter. lutyuv reshapes the
+// luma plane and guesses at chroma with a single gain; `colorspace` mixes the
+// gamut in a space that is not really linear because it has no bt1886 transfer
+// to name. Both are documented above with their measured residuals, and both
+// exist only because this build has no zscale.
+//
+// But a 3D LUT does not need zscale. lut3d is an ordinary filter with no
+// external dependency, and a LUT is just a table — so the conversion can be
+// computed HERE, in JavaScript, at whatever quality we like, and handed to
+// ffmpeg as data. Every residual above disappears at once:
+//
+//   * hue          - tone mapping scales R, G and B by a common ratio derived
+//                    from luminance, so chromaticity is preserved exactly.
+//                    (The `curves` fallback shifted hue by up to 32%.)
+//   * saturation   - per-pixel, not one global gain. The PQ path in particular
+//                    was 14% under on skin and could not be fixed with a
+//                    constant, because the required gain runs 0.95 to 1.52.
+//   * gamut        - the BT.2020 -> BT.709 matrix runs in TRUE linear light,
+//                    which is the only place it is valid. Measured against the
+//                    old approximation, saturated reds were off by ~36 code
+//                    values there and are exact here.
+//   * out of gamut - BT.2020 colours with no BT.709 equivalent used to be hard
+//                    clipped per channel, which shifts hue as it clips. They
+//                    are now desaturated toward their own luminance until they
+//                    fit, which keeps hue and loses only saturation.
+//
+// WHAT THE TONE CURVE IS APPLIED TO. The obvious choice is luminance: curve it,
+// then scale R, G and B by the ratio. That is exactly hue preserving, but it
+// blows saturated highlights out of the BT.709 cube - a bright BT.2020 orange
+// comes back with red far above 1, and the gamut fit below then has to drag it
+// most of the way to grey. Measured across a realistic palette that cost 20% of
+// chroma on average and 67% on a sunlit orange, which is its own kind of washed
+// out. Applying the curve to max(R,G,B) instead is still exactly hue preserving
+// - every channel is scaled by one ratio either way - but it guarantees the
+// result lands inside the cube, because the curve's own output is bounded by 1.
+// Same palette: mean hue error 1.20 deg instead of 1.98, mean chroma retained
+// 86% instead of 80%, worst case 57% instead of 33%.
+//
+// The reason this is free: for a NEUTRAL colour max(R,G,B) and luminance are
+// the same number, so greys, skin and the whole tone response of the shoulder
+// come through completely unchanged. Only saturated colours take a different
+// path, and they take a better one. (Warm skin moves by 0.7 L*, which is under
+// the ~1.0 just-noticeable difference.)
+//
+// The tone curve itself is the same shoulder documented above, so the look
+// does not change - it is applied correctly rather than approximately.
+// SIZE. lut3d interpolates between nodes, so the grid has to be fine enough
+// that what lands between them is right too. Measured against the exact maths
+// over 40k random colours, as 8-bit code values (219 of them between video
+// black and white):
+//
+//        size    mean    p99     worst   .cube    build
+//         33     0.83    11.8    32.1    0.9 MB    78 ms
+//         45     0.54     9.3    29.0    2.3 MB   131 ms
+//         65     0.32     6.3    24.7    7.1 MB   273 ms
+//
+// Note the error falls roughly with h, not h^2, which is the signature of a
+// derivative kink rather than curvature - it comes from the max() in the norm,
+// where the dominant channel changes over. That cannot be smoothed away: any
+// norm that is both >= max (so the result stays in range) and exact on neutrals
+// (so greys keep the tone response) has the same corner. Production HDR->SDR
+// LUTs have it too, which is why they ship at 33 or 65 rather than something
+// adaptive. So: pick 65, and note that the large errors sit only on extremely
+// saturated bright colours. The mean of 0.32 is the number that describes
+// ordinary footage, and even 33 would beat the lutyuv path it replaces, whose
+// own measured residuals run 16-79 code values on saturated colour.
+const HDR_LUT_SIZE = 65;
+const HDR_LUT_FILE = 'hdr2sdr.cube';
+const LUT_K = 0.6;               // shoulder knee, display-encoded domain
+const LUT_VEND = Math.pow(4, 1 / 2.4);   // shoulder tops out at 4x diffuse white
+
+// BT.2020 luma weights, and BT.2020 -> BT.709 in linear light. The rows are
+// renormalised to sum to exactly 1: the published four-decimal values sum to
+// 1.0001/1.0000/0.9999, and that last digit is enough to tint neutral greys,
+// which is the single most visible error a colour pipeline can make.
+const BT2020_W = [0.2627, 0.6780, 0.0593];
+const BT709_W  = [0.2126, 0.7152, 0.0722];
+const BT2020_TO_BT709 = [
+  [ 1.6605, -0.5876, -0.0728],
+  [-0.1246,  1.1329, -0.0083],
+  [-0.0182, -0.1006,  1.1187],
+].map(row => { const k = row[0] + row[1] + row[2]; return row.map(v => v / k); });
+
+// HLG, BT.2100. Inverse OETF gives SCENE light; the OOTF that turns it into
+// DISPLAY light is a function of scene LUMINANCE, not of each channel on its
+// own, so it has to see all three at once. Normalised so that signal 0.75 -
+// HLG diffuse white - comes out at 1.0.
+function hlgToDisplayLinear(rgb) {
+  const e = rgb.map(v => v <= 0.5
+    ? v * v / 3
+    : (Math.exp((v - 0.55991073) / 0.17883277) + 0.28466892) / 12);
+  const ys = BT2020_W[0]*e[0] + BT2020_W[1]*e[1] + BT2020_W[2]*e[2];
+  const gain = ys > 0 ? Math.pow(ys, 0.2) / 0.2032 : 0;   // OOTF gamma 1.2
+  return e.map(v => v * gain);
+}
+
+// PQ, ST 2084. Per channel, absolute nits, normalised to the 203-nit reference
+// white of BT.2408 so that diffuse white is again 1.0.
+function pqToDisplayLinear(rgb) {
+  return rgb.map(v => {
+    const p = Math.pow(Math.max(v, 0), 1 / 78.84375);
+    const n = Math.max(p - 0.8359375, 0);
+    const d = 18.8515625 - 18.6875 * p;
+    return d > 0 ? 10000 * Math.pow(n / d, 1 / 0.1593017578125) / 203 : 0;
+  });
+}
+
+// The shoulder from HDR_TONE_MAPS, in one place: identity below the knee, then
+// a cubic Hermite to (LUT_VEND, 1) with zero terminal slope.
+function toneShoulder(v) {
+  if (v <= LUT_K) return v;
+  const m = LUT_VEND - LUT_K, n = 1 - LUT_K, c = m / n, a = c - 2, b = 3 - 2 * c;
+  const t = Math.min(Math.max((v - LUT_K) / m, 0), 1);
+  return LUT_K + n * (t * (c + t * (b + t * a)));
+}
+
+// A colour outside the BT.709 gamut comes back from the matrix with at least
+// one NEGATIVE channel. Blend it toward its own luminance - desaturate - by
+// exactly enough to bring that channel to zero. Solved rather than iterated:
+// for each channel, the blend factor that lands it precisely on zero.
+//
+// Only negatives are handled here, and that is the point. An earlier version
+// ran after the tone map and also had to pull channels back DOWN from above 1,
+// which needs t = (c-1)/(c-y) - a constraint whose slope is 1/(1-y), so it goes
+// near-vertical exactly where y approaches 1, i.e. in every bright saturated
+// highlight. Sampled across one LUT cell that made the output swing from 0.11
+// to 0.00 to 0.50 in the blue channel over a 0.008 change in red. Continuous,
+// but far too steep for a 33-node LUT to represent, and it would have been
+// baked in permanently. Converting the gamut BEFORE tone mapping removes the
+// problem at the source: the curve's own output is bounded by 1, so once the
+// negatives are gone nothing can exceed 1 afterwards and only this gentle
+// branch is ever needed.
+function removeNegatives(rgb, y) {
+  let t = 0;
+  for (const c of rgb) if (c < 0 && y - c > 0) t = Math.max(t, -c / (y - c));
+  if (t <= 0) return rgb;
+  t = Math.min(t, 1);
+  return rgb.map(c => Math.max(c + t * (y - c), 0));
+}
+
+// One node of the conversion: encoded HDR RGB in, encoded BT.709 SDR RGB out.
+// Order matters and is the opposite of the obvious one - gamut first, then
+// tone map. See removeNegatives() for why.
+function hdrNodeToSdr(rgb, trc) {
+  const lin = trc === 'smpte2084' ? pqToDisplayLinear(rgb) : hlgToDisplayLinear(rgb);
+  // BT.2020 -> BT.709 in true linear light, the only place the matrix is valid.
+  const m = BT2020_TO_BT709;
+  let out = [
+    m[0][0]*lin[0] + m[0][1]*lin[1] + m[0][2]*lin[2],
+    m[1][0]*lin[0] + m[1][1]*lin[1] + m[1][2]*lin[2],
+    m[2][0]*lin[0] + m[2][1]*lin[1] + m[2][2]*lin[2],
+  ];
+  // Luminance survives the matrix unchanged, so this is still the colour's own
+  // luminance and is never negative for a real colour.
+  const y = BT709_W[0]*out[0] + BT709_W[1]*out[1] + BT709_W[2]*out[2];
+  if (!(y > 0)) return [0, 0, 0];
+  out = removeNegatives(out, y);
+  // Tone map on the largest channel and carry all three with it. One common
+  // ratio is what preserves hue; reshaping the channels independently is
+  // exactly the per-channel mistake the `curves` fallback makes. Because the
+  // curve maps into [0,1] and every channel is at or below the one being
+  // curved, the whole triple lands in range with no clipping.
+  const norm = Math.max(out[0], out[1], out[2]);
+  if (!(norm > 0)) return [0, 0, 0];
+  const k = Math.pow(toneShoulder(Math.pow(norm, 1 / 2.4)), 2.4) / norm;
+  return out.map(c => Math.pow(Math.min(Math.max(c * k, 0), 1), 1 / 2.4));
+}
+
+// Adobe .cube. Red varies fastest, which is what the format specifies and what
+// lut3d expects; getting it backwards swaps the red and blue axes and is
+// immediately obvious, so it is worth stating.
+function buildHdrLut(trc, size = HDR_LUT_SIZE) {
+  const n = size - 1;
+  const lines = [
+    `TITLE "${trc === 'smpte2084' ? 'PQ' : 'HLG'} BT.2020 to BT.709 SDR"`,
+    `LUT_3D_SIZE ${size}`,
+    'DOMAIN_MIN 0.0 0.0 0.0',
+    'DOMAIN_MAX 1.0 1.0 1.0',
+  ];
+  for (let b = 0; b < size; b++)
+    for (let g = 0; g < size; g++)
+      for (let r = 0; r < size; r++) {
+        const o = hdrNodeToSdr([r / n, g / n, b / n], trc);
+        // 4 decimals is ~40x finer than an 8-bit code value, and nearly halves
+        // the file compared with 6 - which matters, because this gets written
+        // into ffmpeg's virtual filesystem and parsed line by line in wasm.
+        lines.push(o[0].toFixed(4) + ' ' + o[1].toFixed(4) + ' ' + o[2].toFixed(4));
+      }
+  return lines.join('\n') + '\n';
+}
+
+function conversionPlans(info, filters) {
+  const plans = [];
+  if (info.needsConvert) {
+    // Reference path, ahead of even zscale: the entire conversion precomputed
+    // in JavaScript and applied as a 3D LUT. See buildHdrLut() above.
+    //
+    // lut3d works on RGB, so the chain is: YUV -> planar RGB at high precision,
+    // LUT, then back to yuv420p. Two things have to be said explicitly rather
+    // than left to ffmpeg's judgement, and both are wrong by default:
+    //
+    //   in_color_matrix=bt2020 - the YUV->RGB matrix. The auto-inserted scale
+    //     does not reliably pick this up from the frame's tags, and using the
+    //     bt709 matrix on bt2020nc footage tilts every colour before the LUT
+    //     even sees it.
+    //   setparams - after the LUT the pixels ARE bt709, but the frame is still
+    //     labelled bt2020nc, so the conversion back to YUV would use the wrong
+    //     matrix and undo the work. setparams relabels; it moves no pixels.
+    //
+    // gbrp16le keeps 10-bit input at full precision through the LUT. Ladder
+    // rule applies throughout: each option that a reduced build might not have
+    // gets a plainer sibling below it.
+    if (filters.lut3d && info.hdrTrc && HDR_TONE_MAPS[info.hdrTrc]) {
+      const tail = filters.setparams
+        ? ',setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv,format=yuv420p'
+        : ',format=yuv420p';
+      const heads = [
+        ['scale=in_color_matrix=bt2020:in_range=' + (info.range === 'pc' ? 'full' : 'tv') + ',format=gbrp16le,', ''],
+        ['format=gbrp16le,', ' (matrix implied)'],
+        ['format=gbrp,', ' (8-bit RGB)'],
+      ];
+      for (const [head, hsfx] of heads)
+        for (const interp of [':interp=tetrahedral', '']) plans.push({
+          name: 'HDR 3D LUT' + hsfx + (interp ? '' : ' (trilinear)'),
+          pre: `${head}lut3d=file=${HDR_LUT_FILE}${interp}${tail}`,
+          tags: { primaries: 'bt709', trc: 'bt709', matrix: 'bt709', range: 'tv' },
+          note: HDR_TONE_MAPS[info.hdrTrc].label + ' tone mapped and gamut converted by 3D LUT (reference path)'
+        });
+    }
+    // RANGE. vf_lut hardcodes minval/maxval at 16/235 (scaled for depth) for
+    // any YUV input — it never looks at the frame's colour range. So on a
+    // full-range source the tone map normalises against the wrong endpoints:
+    // signal 16 is treated as black when it is really ~0.06 above it, which
+    // lifts every shadow, and everything above 235 is folded into white. The
+    // result reads as washed out on top of whatever the transfer is doing.
+    // Converting to limited range first makes the lut's assumption true.
+    // Ladder rule applies: keep an unconverted sibling in case this build's
+    // scale filter rejects the range options.
+    const rangeSteps = info.range === 'pc'
+      ? [{ pre: 'scale=in_range=full:out_range=limited,', range: 'tv', sfx: '', note: '' },
+         { pre: '', range: info.range, sfx: ' (range as-is)', note: ', range left full' }]
+      : [{ pre: '', range: info.range || 'tv', sfx: '', note: '' }];
+    if (filters.zscale && filters.tonemap) {
+      // Proper HDR -> SDR: linearise, tone map, then convert back to bt709.
+      // Not available in the stock ffmpeg.wasm core — zscale isn't compiled in.
+      plans.push({
+        name: 'zscale tonemap',
+        pre: 'zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p',
+        tags: { primaries: 'bt709', trc: 'bt709', matrix: 'bt709' },
+        note: 'HDR tone mapped to SDR'
+      });
+    }
+    // Best available here: tone map the HDR transfer on the luma plane, then
+    // hand the result to the colorspace filter for the BT.2020 -> BT.709 gamut.
+    //
+    // KNOWN RESIDUAL, and the largest one left. The gamut is a 3x3 matrix that
+    // is only valid in LINEAR light, so the filter linearises with itrc, mixes,
+    // and re-encodes with trc. We hand it a 1/2.4-encoded signal but the filter
+    // has no bt1886/2.4 transfer to name — the closest it takes is bt709, so
+    // the mixing happens in a space that is not quite linear. Since itrc and
+    // trc are both bt709 the two curves cancel, which is why the luma survives
+    // exactly and neutrals, skin and shadows come through within a code value.
+    // Only saturated colour pays: measured against mixing in true linear light,
+    // sky blue is 3 and foliage 7 code values off, rising to ~36 on a near-
+    // gamut-edge red. Skipping the conversion instead costs 16-79, so this is
+    // still much the better of the two. Fixing it properly needs zscale or
+    // libplacebo — with either present the plan above wins and none of this runs.
+    //
+    // dither=fsb because vf_colorspace defaults to dither=none, and this is
+    // where 10-bit becomes 8-bit; undithered it bands in skies and gradients.
+    //
+    // IMPORTANT: ffmpeg rejects an unknown filter OPTION by failing the entire
+    // filter chain, not by ignoring the option. Without a ladder, one option
+    // this build happens not to have would drop us past every tone map down to
+    // `passthrough` — an untouched HDR signal tagged as if it were SDR, which
+    // is the brightest, flattest possible result. So each addition gets a
+    // plainer sibling right below it, and we only lose one capability per step.
+    const csBase = 'colorspace=all=bt709:iall=bt2020:itrc=bt709:format=yuv420p:fast=0';
+    const sdrTags = { primaries: 'bt709', trc: 'bt709', matrix: 'bt709' };
+    // Transfer converted but primaries untouched — tag honestly as still
+    // BT.2020 so a colour-managed player can finish the job.
+    const gamutlessTags = { primaries: info.primaries, trc: 'bt709', matrix: info.matrix };
+    const gamutSteps = filters.colorspace && info.wideGamut
+      ? [{ pre: ',' + csBase + ':dither=fsb', tags: sdrTags, sfx: ' + gamut',            note: ', BT.2020 gamut converted' },
+         { pre: ',' + csBase,                 tags: sdrTags, sfx: ' + gamut (no dither)', note: ', BT.2020 gamut converted, undithered' },
+         { pre: '',                           tags: gamutlessTags, sfx: ' (transfer only)', note: ', gamut left as BT.2020' }]
+      : [{ pre: '', tags: info.wideGamut ? gamutlessTags : sdrTags, sfx: '', note: '' }];
+    const tm = info.hdrTrc ? HDR_TONE_MAPS[info.hdrTrc] : null;
+    const label = tm ? tm.label : 'HDR';
+    if (filters.lutyuv && tm) {
+      const chroma = chromaLut(tm.chromaGain);
+      for (const r of rangeSteps) for (const g of gamutSteps) plans.push({
+        name: 'HDR tone map' + g.sfx + r.sfx,
+        pre: `${r.pre}lutyuv=y='${tm.luma}':u='${chroma}':v='${chroma}'${g.pre}`,
+        tags: { ...g.tags, range: r.range },
+        note: label + ' tone mapped to SDR (hue preserved, ' + tm.satNote + ')' + g.note + r.note
+      });
+      // Luma-only, no chroma gain: if this build's lutyuv rejects u=/v= we
+      // still want the transfer fixed, at the cost of ~15% undersaturation.
+      for (const r of rangeSteps) for (const g of gamutSteps) plans.push({
+        name: 'HDR tone map, luma only' + g.sfx + r.sfx,
+        pre: `${r.pre}lutyuv=y='${tm.luma}'${g.pre}`,
+        tags: { ...g.tags, range: r.range },
+        note: label + ' tone mapped to SDR (hue preserved, saturation uncompensated)' + g.note + r.note
+      });
+    }
+    if (filters.curves && info.hdrTrc && HDR_CURVES[info.hdrTrc]) {
+      for (const r of rangeSteps) for (const g of gamutSteps) plans.push({
+        name: 'HDR curve' + g.sfx + r.sfx,
+        pre: `${r.pre}curves=all='${HDR_CURVES[info.hdrTrc]}'${g.pre}`,
+        tags: { ...g.tags, range: r.range },
+        note: label + ' tone mapped to SDR (per-channel — may warm hues)' + g.note + r.note
+      });
+    }
+    if (filters.colorspace && info.wideGamut) {
+      // Fallback. This build's colorspace filter rejects itrc=arib-std-b67 and
+      // itrc=smpte2084, so it converts the transfer using its own assumption
+      // about the input curve rather than the real one. Output is bt709 either
+      // way, so it must be tagged bt709 — labelling it with the source's HDR
+      // curve makes players re-apply HDR rendering to SDR pixels.
+      for (const d of [':dither=fsb', '']) plans.push({
+        name: 'colorspace convert' + (d ? '' : ' (no dither)'),
+        pre: 'colorspace=all=bt709:iall=bt2020:format=yuv420p:fast=0' + d,
+        tags: { primaries: 'bt709', trc: 'bt709', matrix: 'bt709', range: 'tv' },
+        note: 'BT.2020 converted to BT.709 (approximate transfer)'
+      });
+    }
+  }
+  // Last resort / normal SDR path: touch nothing, and carry the source's own
+  // colour tags through so the export looks identical to the input.
+  plans.push({
+    name: 'passthrough',
+    pre: info.tenBit ? 'format=yuv420p' : '',
+    tags: { primaries: info.primaries, trc: info.trc, matrix: info.matrix },
+    note: 'source colour metadata preserved'
+  });
+  return plans;
+}
+
+function buildEncodeArgs(filter, info, plan) {
+  const vf = plan.pre ? `${plan.pre},${filter}` : filter;
+  const args = ['-i', 'input.mp4', '-vf', vf,
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '22',
+    '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-level', '4.0'];
+  // Tag what the pixels actually are after this plan ran. Anything unknown is
+  // left unset so ffmpeg carries the input's own value rather than inventing one.
+  const t = plan.tags || {};
+  if (t.primaries) args.push('-color_primaries', t.primaries);
+  if (t.trc) args.push('-color_trc', t.trc);
+  if (t.matrix) args.push('-colorspace', t.matrix);
+  // The plan knows what range it produced; only fall back to the source's when
+  // it does not say (the passthrough plan, which changes nothing).
+  const range = t.range || info.range;
+  if (range) args.push('-color_range', range);
+  if (info.hasAudio) args.push('-c:a', info.audioIsAac ? 'copy' : 'aac', ...(info.audioIsAac ? [] : ['-b:a', '192k']));
+  else args.push('-an');
+  args.push('-movflags', '+faststart');
+  return args;
+}
+
+// exec resolves even when ffmpeg errors out, so verify a real file came back.
+async function runEncode(ff, args, outName) {
+  try { await ff.deleteFile(outName); } catch(e) {}
+  ffLog = [];
+  let threw = null;
+  try {
+    await ff.exec([...args, outName]);
+  } catch(e) {
+    console.error('ffmpeg run threw:', e);
+    threw = e;
+  }
+  if (!threw) {
+    try { if ((await ff.fileSize(outName)) > 0) return { ok: true }; } catch(e) {}
+  }
+  // A plan that fails silently is worse than one that fails loudly: the next
+  // plan down does less colour work, so the export still appears, just wrong.
+  // ffmpeg names the rejected filter or option on its own line; that line is
+  // usually the entire diagnosis, so keep it and show it.
+  const log = ffLog.join('\n');
+  const m = log.match(/^[^\n]*(?:Error|Invalid|Unrecognized|No such|not found|Unable to)[^\n]*/mi);
+  return { ok: false, reason: (m ? m[0] : threw ? String(threw.message || threw) : 'produced no output').trim() };
 }
 
 async function startBurn() {
@@ -1524,10 +2746,9 @@ async function startBurn() {
   document.getElementById('burnDone').style.display = 'none';
   setBurnProg('Loading video processor...', 5);
   try {
-    const { fetchFile } = FFmpeg;
     const ff = await loadFFmpeg();
     setBurnProg('Loading your video...', 20);
-    ff.FS('writeFile', 'input.mp4', await fetchFile(vFile));
+    await ff.writeFile('input.mp4', vFile);
     setBurnProg('Loading font...', 28);
     const fontUrls = {
       'Montserrat':      'fonts/Montserrat-Regular.ttf',
@@ -1546,27 +2767,78 @@ async function startBurn() {
       try {
         const fr = await fetch(furl);
         if (fr.ok) {
-          ff.FS('writeFile', 'font.ttf', new Uint8Array(await fr.arrayBuffer()));
+          const buf = await fr.arrayBuffer();
+          if (buf.byteLength < 1024) throw new Error('font file looks empty (' + buf.byteLength + ' bytes)');
+          await ff.writeFile('font.ttf', new Uint8Array(buf));
           fontLoaded = true;
         } else {
-          console.error('Font fetch failed, status:', fr.status, fr.statusText, furl);
+          throw new Error('HTTP ' + fr.status + ' ' + fr.statusText);
         }
       } catch(e) {
-        console.error('Font fetch threw:', e.message, furl);
+        console.error('Font load failed:', furl, e);
+        showToast(`Couldn't load ${selectedFont} — burning with the default font`);
+      }
+    } else {
+      console.error('No font file mapped for:', selectedFont);
+      showToast(`No font file for ${selectedFont} — burning with the default font`);
+    }
+    setBurnProg('Checking video format...', 34);
+    const info = await probeInput(ff);
+    // Build and install the 3D LUT before the plan ladder runs, so the
+    // reference plan has its file. Only for HDR sources, and only if this build
+    // has lut3d at all - otherwise it is a couple of megabytes for nothing.
+    let lutWritten = false;
+    const ffFilterSet = await availableFilters(ff);
+    if (info.hdrTrc && HDR_TONE_MAPS[info.hdrTrc] && ffFilterSet.lut3d) {
+      try {
+        setBurnProg('Building colour conversion...', 37);
+        const t0 = performance.now();
+        const cube = buildHdrLut(info.hdrTrc);
+        await ff.writeFile(HDR_LUT_FILE, new TextEncoder().encode(cube));
+        lutWritten = true;
+        console.log(`Built ${HDR_LUT_SIZE}^3 ${info.hdrTrc} LUT (${(cube.length/1048576).toFixed(1)} MB) in ${Math.round(performance.now()-t0)} ms`);
+      } catch(e) {
+        // Not fatal: the ladder simply falls through to the lutyuv path.
+        console.warn('Could not build/write the HDR LUT, falling back:', e);
       }
     }
     setBurnProg('Burning captions...', 42);
     const filter = await buildDrawtextFilter(fontLoaded);
     if (!filter) throw new Error('No captions to burn');
     const outName = getOutName() + '_captioned.mp4';
-    await ff.run('-i', 'input.mp4', '-vf', filter, '-c:a', 'copy', '-preset', 'ultrafast', '-movflags', '+faststart', outName);
+    const plans = conversionPlans(info, { ...ffFilterSet, lut3d: ffFilterSet.lut3d && lutWritten });
+    let ok = false, used = null;
+    const attempts = [];
+    for (const plan of plans) {
+      setBurnProg(`Burning captions...${plan.pre ? ' (' + plan.name + ')' : ''}`, 42);
+      const r = await runEncode(ff, buildEncodeArgs(filter, info, plan), outName);
+      if (r.ok) { ok = true; used = plan; break; }
+      attempts.push({ name: plan.name, reason: r.reason });
+      console.warn('Encode plan failed, trying next:', plan.name, '—', r.reason);
+    }
+    if (!ok) throw new Error('ffmpeg produced no output — see console log');
+    console.log('Encoded using plan:', used.name);
+    if (info.hdrTrc) showToast('HDR source — ' + used.note);
+    // Read back what we actually produced, so a colour shift can be diagnosed
+    // by comparing the two instead of guessing.
+    setBurnProg('Checking output...', 92);
+    // Scrub before probing, so the report describes the file the user actually
+    // gets rather than the one ffmpeg handed back.
+    let data = await ff.readFile(outName);
+    const scrub = stripHdrSideData(data);
+    data = scrub.data;
+    if (scrub.removed.length) {
+      try { await ff.writeFile(outName, data); } catch(e) { console.warn('could not write back scrubbed file', e); }
+    }
+    const outInfo = await probeInput(ff, outName);
+    showColorReport(info, outInfo, used, attempts, scrub.removed);
     setBurnProg('Finalizing...', 95);
-    const data = ff.FS('readFile', outName);
-    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    const blob = new Blob([data], { type: 'video/mp4' });
     const url = URL.createObjectURL(blob);
-    try { ff.FS('unlink', 'input.mp4'); } catch(e) {}
-    try { if (fontLoaded) ff.FS('unlink', 'font.ttf'); } catch(e) {}
-    try { ff.FS('unlink', outName); } catch(e) {}
+    try { await ff.deleteFile('input.mp4'); } catch(e) {}
+    try { if (fontLoaded) await ff.deleteFile('font.ttf'); } catch(e) {}
+    try { if (lutWritten) await ff.deleteFile(HDR_LUT_FILE); } catch(e) {}
+    try { await ff.deleteFile(outName); } catch(e) {}
     setBurnProg('Done!', 100);
     document.getElementById('burnFill').classList.add('done');
     document.getElementById('burnProgress').style.display = 'none';
@@ -1587,6 +2859,32 @@ function setBurnProg(title, pct) {
   document.getElementById('burnTitle').textContent = title;
   document.getElementById('burnFill').style.width = pct + '%';
 }
+
+// Only one weight per font file ships with the app, so the preview has to draw
+// at the weight that will actually be burned — asking the browser for 800 on a
+// Regular file gets a synthetic bold that the burn can't reproduce.
+function fontWeightForSelected() { return /\bBold\b/.test(selectedFont) ? 700 : 400; }
+
+// A Regular face has thin stems; a 5% outline on top of them closes the
+// counters and merges neighbouring letters, so scale the stroke to the weight.
+// outlineStrength 0 means no outline at all.
+function outlineWidth(size) {
+  if (!outlineStrength) return 0;
+  return Math.max(2, Math.round(size * (fontWeightForSelected() >= 700 ? 0.05 : 0.032) * outlineStrength));
+}
+
+// drawtext places the TOP of a string's ink box at y, so a word with no
+// ascender ("up.") rides higher than one with ("fuck it") when both are
+// centred with -th/2. Align every word to one baseline derived from the font's
+// own metrics instead, so the ink box never enters the vertical placement.
+function fontMetrics(ctx) {
+  const m = ctx.measureText('Hxg');
+  if (m.fontBoundingBoxAscent == null || m.actualBoundingBoxAscent == null) return null;
+  return { asc: m.fontBoundingBoxAscent, desc: m.fontBoundingBoxDescent };
+}
+
+// Baseline that centres the font's em box on cy.
+function baselineFor(cy, fm) { return cy + (fm.asc - fm.desc) / 2; }
 
 function hexToFFColor(hex) { const h = hex.replace('#',''); return '0x'+h.slice(0,2)+h.slice(2,4)+h.slice(4,6)+'FF'; }
 function escDrawtext(t) { return t.replace(/\\/g,'\\\\').replace(/'/g,'\u2019').replace(/:/g,'\\:').replace(/\[/g,'\\[').replace(/\]/g,'\\]'); }
@@ -1611,50 +2909,607 @@ async function buildDrawtextFilter(fontLoaded) {
   const xPx = Math.round(raw.px), yPx = Math.round(raw.py);
   const dispFs = captionStyle === 'large' ? Math.round(fs * 1.4) : fs;
 
+  // Measure with the exact face and weight ffmpeg will draw with, otherwise the
+  // layout is computed against different metrics than the burn uses.
+  const weight = fontWeightForSelected();
+  try { await document.fonts.load(`${weight} ${dispFs}px '${selectedFont}'`); } catch(e) {}
+  if (document.fonts.check && !document.fonts.check(`${weight} ${dispFs}px '${selectedFont}'`)) {
+    console.warn('Font not available for measurement; spacing/wrapping may be off:', selectedFont);
+  }
+  const lineH = captionLineHeight(dispFs);
+  // Centre of line li when a caption occupies n lines, kept centred on Y.
+  const lineY = (li, n) => Math.round(yPx + (li - (n - 1) / 2) * lineH);
+  const fm = fontMetrics(measureCtxFor(dispFs));
+  // y for a piece of text on the line centred at cy. With metrics available
+  // every string lands on the same baseline; without them, fall back to the
+  // old ink-box centring.
+  const yFor = (cy, item) => (fm && item && item.asc != null)
+    ? String(Math.round(baselineFor(cy, fm) - item.asc))
+    : `${cy}-th/2`;
+
   if (captionStyle === 'word') {
-    try { await document.fonts.load(`400 ${dispFs}px '${selectedFont}'`); } catch(e) {}
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    ctx.font = `400 ${dispFs}px '${selectedFont}'`;
-    const gap = Math.round(dispFs * 0.28);
-    const borderw = Math.max(2, Math.round(dispFs * .05));
+    const borderw = outlineWidth(dispFs);
+    const gap = wordGapFor(dispFs);
     const parts = [];
     captions.forEach(cap => {
-      const words = getCapWords(cap);
-      const widths = words.map(w => ctx.measureText(w.text).width);
-      const totalW = widths.reduce((a, b) => a + b, 0) + gap * (words.length - 1);
-      let cursor = xPx - totalW / 2;
-      words.forEach((w, i) => {
-        const wx = Math.round(cursor);
-        const wText = escDrawtext(w.text);
-        const base = `text='${wText}':fontsize=${dispFs}:borderw=${borderw}:box=0:boxcolor=0x00000000:boxborderw=8:x=${wx}:y=${yPx}-th/2`;
-        // inactive phase: white, shown before and after this word's own window
-        parts.push(`drawtext=${fontRef}${base}:fontcolor=0xFFFFFFFF:bordercolor=0x000000FF:enable='between(t,${cap.start.toFixed(3)},${w.start.toFixed(3)})+between(t,${w.end.toFixed(3)},${cap.end.toFixed(3)})'`);
-        // active phase: highlight color, shown only during this word's own window
-        parts.push(`drawtext=${fontRef}${base}:fontcolor=${fc}:bordercolor=0x000000FF:enable='between(t,${w.start.toFixed(3)},${w.end.toFixed(3)})'`);
-        cursor += widths[i] + gap;
+      // Smart edge detection: pack words into as many lines as it takes to stay
+      // inside the frame at this size, each line still centred on X.
+      const { lines } = layoutCaption(cap, dispFs, gap);
+      const placed = [];
+      lines.forEach((line, li) => {
+        const cy = lineY(li, lines.length);
+        let cursor = xPx - line.width / 2;
+        line.items.forEach(it => {
+          placed.push({ it, wx: Math.round(cursor), cy });
+          cursor += it.width + gap;
+        });
+      });
+      const capWindow = `between(t,${cap.start.toFixed(3)},${cap.end.toFixed(3)})`;
+      const geom = (wx, cy, it) => `fontsize=${dispFs}:box=0:x=${wx}:y=${yFor(cy, it)}`;
+      // Pass 1 — every word's outline for the whole caption. Each word is its
+      // own drawtext, so a later word's border would otherwise be composited on
+      // top of an earlier word's letters and slice through them. Laying all the
+      // outlines down first, then all the fills, keeps strokes behind glyphs.
+      // Skipped entirely with the outline off — a black pass under the fill
+      // would fringe the antialiased edges.
+      if (borderw > 0) placed.forEach(({ it, wx, cy }) => {
+        parts.push(`drawtext=${fontRef}text='${escDrawtext(it.text)}':${geom(wx, cy, it)}:fontcolor=0x000000FF:borderw=${borderw}:bordercolor=0x000000FF:enable='${capWindow}'`);
+      });
+      // Pass 2 — the fills, white until the word is spoken, highlight during.
+      placed.forEach(({ it, wx, cy }) => {
+        const base = `text='${escDrawtext(it.text)}':${geom(wx, cy, it)}:borderw=0`;
+        parts.push(`drawtext=${fontRef}${base}:fontcolor=0xFFFFFFFF:enable='between(t,${cap.start.toFixed(3)},${it.start.toFixed(3)})+between(t,${it.end.toFixed(3)},${cap.end.toFixed(3)})'`);
+        parts.push(`drawtext=${fontRef}${base}:fontcolor=${fc}:enable='between(t,${it.start.toFixed(3)},${it.end.toFixed(3)})'`);
       });
     });
     return parts.join(',');
   }
 
-  const parts = captions.map(cap => {
-    const text = escDrawtext(captionStyle === 'caps' ? cap.text.toUpperCase() : cap.text);
+  let fontcolor, bordercolor, borderw, box, boxcolor;
+  switch(captionStyle) {
+    case 'white':   fontcolor=ptc; bordercolor='0x00000000'; borderw=0; box=1; boxcolor=pbc; break;
+    case 'outline': fontcolor=fc; bordercolor=oc; borderw=Math.round(outlineWidth(fs)*1.2); box=0; boxcolor='0x00000000'; break;
+    case 'caps':    fontcolor='0xFFFFFFFF'; bordercolor='0x000000FF'; borderw=outlineWidth(fs); box=0; boxcolor='0x00000000'; break;
+    default:        fontcolor=fc; bordercolor='0x000000FF'; borderw=outlineWidth(fs); box=0; boxcolor='0x00000000'; break;
+  }
+  const parts = [];
+  captions.forEach(cap => {
     const enable = `between(t,${cap.start.toFixed(3)},${cap.end.toFixed(3)})`;
-    let fontcolor, bordercolor, borderw, box, boxcolor;
-    switch(captionStyle) {
-      case 'white':   fontcolor=ptc; bordercolor='0x00000000'; borderw=0; box=1; boxcolor=pbc; break;
-      case 'outline': fontcolor=fc; bordercolor=oc; borderw=Math.max(2,Math.round(fs*.06)); box=0; boxcolor='0x00000000'; break;
-      case 'caps':    fontcolor='0xFFFFFFFF'; bordercolor='0x000000FF'; borderw=Math.max(2,Math.round(fs*.05)); box=0; boxcolor='0x00000000'; break;
-      default:        fontcolor=fc; bordercolor='0x000000FF'; borderw=Math.max(2,Math.round(fs*.05)); box=0; boxcolor='0x00000000'; break;
-    }
-    return `drawtext=${fontRef}text='${text}':fontsize=${dispFs}:fontcolor=${fontcolor}:bordercolor=${bordercolor}:borderw=${borderw}:box=${box}:boxcolor=${boxcolor}:boxborderw=8:x=${xPx}-tw/2:y=${yPx}-th/2:enable='${enable}'`;
+    // Smart edge detection: one drawtext per wrapped line, each centred on X,
+    // the block as a whole still centred on Y.
+    const { lines } = layoutCaption(cap, dispFs);
+    const lineCtx = measureCtxFor(dispFs);
+    lines.forEach((line, li) => {
+      const raw = line.items.map(i => i.text).join(' ');
+      const cy = lineY(li, lines.length);
+      // Measure the joined line, not the individual words, so the baseline
+      // matches what drawtext will actually render.
+      const item = { asc: lineCtx.measureText(raw).actualBoundingBoxAscent };
+      parts.push(`drawtext=${fontRef}text='${escDrawtext(raw)}':fontsize=${dispFs}:fontcolor=${fontcolor}:bordercolor=${bordercolor}:borderw=${borderw}:box=${box}:boxcolor=${boxcolor}:boxborderw=8:x=${xPx}-tw/2:y=${yFor(cy, item)}:enable='${enable}'`);
+    });
   });
   return parts.join(',');
 }
 
 // SETTINGS
-function openSett() { document.getElementById('settOverlay').classList.add('open'); document.getElementById('settDrawer').classList.add('open'); }
+// ── Video engine settings ──────────────────────────────────────────────────
+function onFFEnginePick(id) { setFFEngine(id); }
+function onFFCoreEdit(url) {
+  const u = url.trim();
+  setFFEngine(ffEngineId(), u && u !== FF_ENGINES[ffEngineId()].core ? u : undefined);
+}
+
+function renderFFSettings() {
+  const sel = document.getElementById('settFFEngine');
+  if (!sel) return;
+  const id = ffEngineId();
+  sel.innerHTML = Object.entries(FF_ENGINES)
+    .map(([k, e]) => `<option value="${k}"${k === id ? ' selected' : ''}>${esc(e.label)}</option>`).join('');
+  const core = document.getElementById('settFFCore');
+  if (core) core.value = ffCoreURL();
+  const badge = document.getElementById('ffHdrBadge');
+  if (badge && !ffCaps) { badge.className = 'sett-badge no'; badge.textContent = 'Not checked'; }
+  const out = document.getElementById('ffCaps');
+  if (out && !ffCaps) out.innerHTML = '';
+}
+
+// ---------------------------------------------------------------------------
+// Can this browser export HDR at all, and by which route?
+//
+// Keeping HDR means never converting to SDR: decode 10-bit, draw the captions
+// in the HDR space, re-encode 10-bit, tag the container. Every one of those
+// links varies by browser, GPU and codec licence, and support tables disagree
+// with each other, so this asks the browser directly and reports what actually
+// answered. Nothing here is guessed from a version number.
+//
+// The two hard parts, and why they are tested the way they are:
+//
+//   PLANE ACCESS. The cleanest way to draw captions into HDR is to write them
+//   straight into the decoded frame's Y/Cb/Cr planes: the video pixels are then
+//   passed through untouched, bit for bit, and no colour conversion happens at
+//   all. That needs VideoFrame.format to be a real 10-bit format like I420P10.
+//   Hardware decoders frequently hand back an opaque GPU frame with a NULL
+//   format instead, and copyTo() refuses those. Which one you get is a property
+//   of this machine's decoder, so it is probed against a real frame from the
+//   loaded video rather than assumed.
+//
+//   HDR CANVAS. The fallback for compositing is a canvas in rec2100-hlg or
+//   rec2100-pq at float16. Asking for one does not mean getting one - the
+//   context may quietly come back as plain sRGB - so the probe reads back
+//   getContextAttributes() and reports what was actually granted, not what was
+//   requested.
+//
+// Codec note, because it decides more than performance here: HEVC is covered by
+// patent pools and shipping a product that encodes it can carry licensing
+// obligations. AV1 and VP9 are royalty-free. Both are reported.
+// Codec candidates, grouped by family, each with a ladder of levels.
+//
+// A single codec string is not a fair test. Hardware encoders advertise
+// specific profile/level combinations, and a machine that refuses HEVC Main10
+// at level 5.1 may well accept it at 4.1 - which is the right level for 1080p
+// anyway. Asking once with one string and concluding "no HEVC here" is how you
+// wrongly write off the only format that matters.
+//
+// The ordering of the families is not about quality. It is about where the file
+// is going: Instagram's HDR pipeline is built on HEVC. Meta ingests HEVC
+// Dolby Vision Profile 8.4 - which is exactly what an iPhone records, and whose
+// base layer is plain HLG - and transcodes it internally to AV1 Profile 10.4.
+// So an HLG HEVC 10-bit MP4 is recognised as HDR even without a Dolby Vision
+// RPU, because the RPU only ever refined a signal that was already HLG.
+// VP9 is a real 10-bit HDR codec and is royalty-free, but it lives in WebM and
+// Instagram's ingest does not take it, so it is listed last and labelled.
+const HDR_CODEC_FAMILIES = [
+  {
+    label: 'HEVC Main10', licence: 'patent-licensed', container: 'MP4',
+    delivery: 'accepted by Instagram, TikTok and YouTube as HDR',
+    candidates: [].concat(...['L123', 'L120', 'L153', 'L150', 'L156', 'L93']
+      .map(l => [`hvc1.2.4.${l}.B0`, `hev1.2.4.${l}.B0`])),
+  },
+  {
+    label: 'AV1 Main, 10-bit', licence: 'royalty-free', container: 'MP4',
+    delivery: 'YouTube yes; Instagram ingest prefers HEVC',
+    candidates: ['av01.0.08M.10', 'av01.0.09M.10', 'av01.0.05M.10', 'av01.0.04M.10', 'av01.0.12M.10'],
+  },
+  {
+    label: 'VP9 Profile 2, 10-bit', licence: 'royalty-free', container: 'WebM',
+    delivery: 'YouTube yes; Instagram does not ingest WebM',
+    candidates: ['vp09.02.10.10', 'vp09.02.40.10', 'vp09.02.41.10', 'vp09.02.31.10', 'vp09.02.50.10'],
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Drawing captions INTO an HDR frame.
+//
+// Needed by every HDR route, so it lives on its own and is independent of which
+// codec or compositing path we end up using.
+//
+// THE TRAP, first, because it is the thing that goes wrong. Caption colours are
+// picked in sRGB - #FFFFFF is white. Written naively into a PQ or HLG frame,
+// that white becomes the frame's PEAK: 1000 nits or more of searing text with
+// no headroom left above it. Graphics belong at REFERENCE WHITE, 203 nits,
+// which is BT.2408's diffuse white and what native editors put titles at. In
+// HLG that lands on signal 0.75; the ~220 code values above it stay available
+// for the highlights HDR exists to carry.
+//
+// The full route, in order:
+//   sRGB (non-linear) -> linear BT.709 -> linear BT.2020 -> scale so caption
+//   white is diffuse white -> inverse OOTF -> OETF (HLG) or inverse EOTF (PQ)
+//   -> non-constant-luminance Y'CbCr -> 10-bit limited range.
+//
+// The HLG inverse OOTF is done through LUMINANCE, not per channel. Since
+// RGB_display = Y_scene^(g-1) * RGB_scene and Y_display = Y_scene^g, the scene
+// signal is RGB_display / Y_display^((g-1)/g) - exact, and exactly invertible
+// against the decode above. Doing it per channel would tint saturated captions.
+const CAPTION_REF_WHITE = 1.0;   // 1.0 == diffuse white == 203 nits. Turn down, never up.
+const HLG_DIFFUSE_DISPLAY = 0.2032;  // display light at HLG signal 0.75, relative to peak
+
+const BT709_TO_BT2020 = [
+  [0.6274039, 0.3292830, 0.0433131],
+  [0.0690973, 0.9195404, 0.0113623],
+  [0.0163914, 0.0880132, 0.8955953],
+].map(row => { const k = row[0] + row[1] + row[2]; return row.map(v => v / k); });
+
+const srgbToLinear = c => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+
+// Scene light -> HLG signal. The OETF proper, BT.2100.
+function hlgOetf(e) {
+  if (e <= 0) return 0;
+  return e <= 1 / 12
+    ? Math.sqrt(3 * e)
+    : 0.17883277 * Math.log(12 * e - 0.28466892) + 0.55991073;
+}
+
+// Absolute nits -> PQ signal. ST 2084 inverse EOTF.
+function pqInverseEotf(nits) {
+  const y = Math.min(Math.max(nits, 0), 10000) / 10000;
+  const ym = Math.pow(y, 0.1593017578125);
+  return Math.pow((0.8359375 + 18.8515625 * ym) / (1 + 18.6875 * ym), 78.84375);
+}
+
+// An sRGB caption colour as 10-bit limited-range BT.2020 Y'CbCr in the frame's
+// own transfer. Returns integers ready to write straight into the planes.
+function captionColorToHdrYuv10(r8, g8, b8, trc) {
+  const lin = [r8, g8, b8].map(v => srgbToLinear(Math.min(Math.max(v, 0), 255) / 255));
+  const m = BT709_TO_BT2020;
+  // Linear BT.2020, scaled so full-white text sits at diffuse white.
+  const d = [0, 1, 2].map(i =>
+    (m[i][0]*lin[0] + m[i][1]*lin[1] + m[i][2]*lin[2]) * CAPTION_REF_WHITE);
+  let e;
+  if (trc === 'smpte2084') {
+    e = d.map(v => pqInverseEotf(v * 203));
+  } else {
+    // Relative to peak, then undo the OOTF through luminance before the OETF.
+    const dp = d.map(v => v * HLG_DIFFUSE_DISPLAY);
+    const yd = BT2020_W[0]*dp[0] + BT2020_W[1]*dp[1] + BT2020_W[2]*dp[2];
+    const k = yd > 0 ? Math.pow(yd, (1.2 - 1) / 1.2) : 0;
+    e = dp.map(v => hlgOetf(k > 0 ? v / k : 0));
+  }
+  const clamp01 = v => Math.min(Math.max(v, 0), 1);
+  const [rp, gp, bp] = e.map(clamp01);
+  // Non-constant luminance Y'CbCr, BT.2020.
+  const yp = 0.2627 * rp + 0.6780 * gp + 0.0593 * bp;
+  const cb = (bp - yp) / 1.8814;
+  const cr = (rp - yp) / 1.4746;
+  // 10-bit limited range: luma 64..940, chroma 64..960 about a neutral 512.
+  // Measured: no caption colour clamps here, not even the pure primaries, so
+  // the clamps are a guard rather than part of the conversion. Round-tripping
+  // realistic caption colours (whites, greys, skin, yellows, brand blues) back
+  // to sRGB returns them within 2/255. Pure saturated primaries drift up to
+  // 13/255, which is 10-bit chroma quantisation amplified by the OETF's
+  // near-vertical slope at low signal, landing in channels already near zero.
+  const q = (v, lo, hi) => Math.min(Math.max(Math.round(v), lo), hi);
+  return {
+    y:  q(64 + 876 * yp, 64, 940),
+    cb: q(512 + 896 * cb, 64, 960),
+    cr: q(512 + 896 * cr, 64, 960),
+  };
+}
+
+// Blend an RGBA caption raster into I420P10 planes, in place.
+//
+// Blending happens in the ENCODED domain rather than in linear light. That is
+// deliberate and is what video compositors do: both HLG and PQ are roughly
+// perceptual, so a 50% alpha edge lands visually halfway, which is what the
+// antialiasing in the raster assumed. Blending the same edge in linear light
+// would make text look thin and haloed against dark backgrounds.
+//
+// The video is touched ONLY where alpha is non-zero. Everywhere else the source
+// samples are left exactly as they were, so an HDR export is bit-identical to
+// its source outside the caption box.
+function blendCaptionIntoHdrPlanes(dst, src, trc) {
+  const { yPlane, uPlane, vPlane, width, height } = dst;
+  const yStride = dst.yStride || width;
+  const cStride = dst.cStride || (width >> 1);
+  const { data, width: sw, height: sh } = src;
+  const ox = src.x | 0, oy = src.y | 0;
+  const cache = new Map();
+  const colorAt = (r, g, b) => {
+    const key = (r << 16) | (g << 8) | b;
+    let c = cache.get(key);
+    if (!c) { c = captionColorToHdrYuv10(r, g, b, trc); cache.set(key, c); }
+    return c;
+  };
+
+  // Luma: one sample per pixel.
+  for (let sy = 0; sy < sh; sy++) {
+    const dy = oy + sy;
+    if (dy < 0 || dy >= height) continue;
+    for (let sx = 0; sx < sw; sx++) {
+      const dx = ox + sx;
+      if (dx < 0 || dx >= width) continue;
+      const i = (sy * sw + sx) * 4;
+      const a = data[i + 3];
+      if (!a) continue;                       // untouched: the video passes through
+      const c = colorAt(data[i], data[i + 1], data[i + 2]);
+      const p = dy * yStride + dx;
+      yPlane[p] = a === 255 ? c.y : Math.round((yPlane[p] * (255 - a) + c.y * a) / 255);
+    }
+  }
+
+  // Chroma: 4:2:0, so one sample per 2x2 luma block. Alpha is averaged over the
+  // block, otherwise a caption edge that covers half the block would apply full
+  // chroma to it and fringe.
+  const cw = width >> 1, ch = height >> 1;
+  for (let sy = 0; sy < sh; sy += 2) {
+    for (let sx = 0; sx < sw; sx += 2) {
+      let aSum = 0, rSum = 0, gSum = 0, bSum = 0, n = 0;
+      for (let dy2 = 0; dy2 < 2; dy2++) for (let dx2 = 0; dx2 < 2; dx2++) {
+        const yy = sy + dy2, xx = sx + dx2;
+        if (yy >= sh || xx >= sw) continue;
+        const i = (yy * sw + xx) * 4, a = data[i + 3];
+        aSum += a; n++;
+        if (a) { rSum += data[i] * a; gSum += data[i + 1] * a; bSum += data[i + 2] * a; }
+      }
+      if (!n || !aSum) continue;
+      const cx = (ox + sx) >> 1, cy = (oy + sy) >> 1;
+      if (cx < 0 || cx >= cw || cy < 0 || cy >= ch) continue;
+      // Colour weighted by alpha, coverage averaged over the block.
+      const c = colorAt(Math.round(rSum / aSum), Math.round(gSum / aSum), Math.round(bSum / aSum));
+      const a = aSum / n;
+      const p = cy * cStride + cx;
+      uPlane[p] = a >= 255 ? c.cb : Math.round((uPlane[p] * (255 - a) + c.cb * a) / 255);
+      vPlane[p] = a >= 255 ? c.cr : Math.round((vPlane[p] * (255 - a) + c.cr * a) / 255);
+    }
+  }
+  return dst;
+}
+
+// Canvas 2D is not the only HDR surface, and on Chrome it is not the main one -
+// the HDR canvas work landed in WebGL first, so a browser can refuse
+// rec2100-hlg on a 2D context and grant it on a WebGL2 one. Probed separately
+// because a "no" from the 2D test says nothing about this.
+function probeWebglHdr(space) {
+  const out = { space, ok: false, granted: null, float16: false, err: '' };
+  try {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 8;
+    const gl = cv.getContext('webgl2');
+    if (!gl) { out.err = 'no webgl2'; return out; }
+    // A float16 drawing buffer is what actually holds values above 1.0; an
+    // 8-bit buffer tagged rec2100-hlg would clip everything HDR is for.
+    if (typeof gl.drawingBufferStorage === 'function') {
+      try { gl.drawingBufferStorage(gl.RGBA16F, 8, 8); out.float16 = true; } catch(e) {}
+    }
+    try { gl.drawingBufferColorSpace = space; } catch(e) { out.err = e.message || String(e); }
+    out.granted = gl.drawingBufferColorSpace || null;
+    out.ok = out.granted === space;
+  } catch(e) { out.err = e.message || String(e); }
+  return out;
+}
+
+// The third route, and the one that needs the least from the browser.
+//
+// Routes one and two both depend on getting HDR pixels OUT of the browser's own
+// decoder or INTO its compositor. Neither is needed if we build the frame
+// ourselves: ffmpeg already decodes this footage, and it can hand back raw
+// yuv420p10le planes. Captions get blended into those planes in JavaScript,
+// the result is wrapped in a VideoFrame we construct directly, and that goes to
+// the hardware encoder. The browser's decoder is never involved, so an opaque
+// GPU frame does not matter, and no HDR canvas is required either.
+//
+// isConfigSupported() is not enough to trust this: it answers about a codec
+// config, not about whether the encoder will accept a 10-bit HLG frame. So this
+// builds a real I420P10 frame tagged BT.2020/HLG, pushes it through a real
+// encoder, and checks that actual bytes come back.
+async function probeConstructAndEncode(codec) {
+  const res = { codec, construct: false, encode: false, bytes: 0, why: '' };
+  const w = 64, h = 64, ySize = w * h, cSize = (w / 2) * (h / 2);
+  let frame = null, enc = null;
+  try {
+    const buf = new Uint8Array((ySize + 2 * cSize) * 2);
+    const dv = new DataView(buf.buffer);
+    for (let i = 0; i < ySize; i++) dv.setUint16(i * 2, 600, true);            // mid grey
+    for (let i = 0; i < 2 * cSize; i++) dv.setUint16((ySize + i) * 2, 512, true); // neutral
+    frame = new VideoFrame(buf, {
+      format: 'I420P10', codedWidth: w, codedHeight: h, timestamp: 0,
+      colorSpace: { primaries: 'bt2020', transfer: 'hlg', matrix: 'bt2020-ncl', fullRange: false },
+    });
+    res.construct = true;
+  } catch(e) { res.why = 'could not build a 10-bit frame: ' + (e.message || String(e)); return res; }
+  try {
+    const chunks = [];
+    let encErr = '';
+    enc = new VideoEncoder({ output: c => chunks.push(c), error: e => { encErr = e.message || String(e); } });
+    enc.configure({ codec, width: w, height: h, bitrate: 1e6, framerate: 30 });
+    enc.encode(frame, { keyFrame: true });
+    await enc.flush();
+    res.bytes = chunks.reduce((n, c) => n + (c.byteLength || 0), 0);
+    res.encode = res.bytes > 0;
+    if (!res.encode) res.why = encErr || 'encoder accepted the frame but produced no data';
+  } catch(e) { res.why = 'encoder rejected the 10-bit frame: ' + (e.message || String(e)); }
+  finally {
+    try { frame && frame.close(); } catch(e) {}
+    try { enc && enc.state !== 'closed' && enc.close(); } catch(e) {}
+  }
+  return res;
+}
+
+async function probeHdrExport() {
+  const r = {
+    api: {
+      VideoDecoder: typeof VideoDecoder !== 'undefined',
+      VideoEncoder: typeof VideoEncoder !== 'undefined',
+      VideoFrame:   typeof VideoFrame !== 'undefined',
+      configureHighDynamicRange: typeof HTMLCanvasElement !== 'undefined' &&
+        typeof HTMLCanvasElement.prototype.configureHighDynamicRange === 'function',
+    },
+    decode: [], encode: [], families: [], canvas: [], webgl: [], build: [], frame: null, notes: [],
+  };
+  if (!r.api.VideoEncoder || !r.api.VideoDecoder) {
+    r.notes.push('WebCodecs is not available in this browser, so HDR export is not possible here at all.');
+    return r;
+  }
+
+  // Encode/decode support. Width and height matter: hardware encoders refuse
+  // configurations above what the silicon does, so ask at the real size of the
+  // loaded video rather than at some nominal 1920x1080.
+  const w = (vW && vW > 1 ? vW : 1920), h = (vH && vH > 1 ? vH : 1080);
+  const even = n => Math.max(2, n - (n % 2));
+  const supported = async (cls, cfg) => {
+    try { const res = await cls.isConfigSupported(cfg); return !!(res && res.supported); }
+    catch(e) { return false; }
+  };
+  for (const fam of HDR_CODEC_FAMILIES) {
+    const f = { label: fam.label, licence: fam.licence, container: fam.container,
+                delivery: fam.delivery, encode: null, decode: null, tried: fam.candidates.length };
+    for (const codec of fam.candidates) {
+      if (!f.encode && await supported(VideoEncoder, { codec, width: even(w), height: even(h), bitrate: 12e6, framerate: 30 })) f.encode = codec;
+      if (!f.decode && await supported(VideoDecoder, { codec, codedWidth: even(w), codedHeight: even(h) })) f.decode = codec;
+      if (f.encode && f.decode) break;
+    }
+    r.families.push(f);
+    // Keep the flat lists the rest of the probe and the UI already speak.
+    r.encode.push({ label: fam.label, licence: fam.licence, codec: f.encode || fam.candidates[0], ok: !!f.encode, why: f.encode ? '' : 'no level accepted' });
+    r.decode.push({ label: fam.label, licence: fam.licence, codec: f.decode || fam.candidates[0], ok: !!f.decode, why: '' });
+  }
+
+  // A canvas we can actually composite HDR captions on. Ask, then read back
+  // what was granted - a request for rec2100-hlg can silently return sRGB.
+  for (const space of ['rec2100-hlg', 'rec2100-pq']) {
+    let granted = null, err = '';
+    try {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 8;
+      const ctx = cv.getContext('2d', { colorSpace: space, colorType: 'float16' });
+      const at = ctx && ctx.getContextAttributes ? ctx.getContextAttributes() : null;
+      granted = at ? (at.colorSpace || 'srgb') : (ctx ? 'unknown' : null);
+    } catch(e) { err = e.message || String(e); }
+    r.canvas.push({ space, granted, ok: granted === space, err });
+  }
+
+  for (const space of ['rec2100-hlg', 'rec2100-pq']) r.webgl.push(probeWebglHdr(space));
+
+  // Build-our-own-frame route, tested against every codec that claimed support.
+  for (const e of r.encode.filter(x => x.ok)) {
+    r.build.push({ ...e, ...(await probeConstructAndEncode(e.codec)) });
+  }
+
+  // The decisive test: take a real frame from the loaded video and see what we
+  // are allowed to do with it.
+  const v = document.getElementById('vidEl');
+  if (!vFile || !v || !v.videoWidth) {
+    r.notes.push('No video loaded, so the frame test was skipped — load one and check again for the part that matters most.');
+  } else {
+    let f = null;
+    try {
+      f = new VideoFrame(v, { timestamp: 0 });
+      const cs = f.colorSpace || {};
+      r.frame = {
+        format: f.format,               // null here means the planes are unreachable
+        primaries: cs.primaries || null,
+        transfer: cs.transfer || null,
+        matrix: cs.matrix || null,
+        fullRange: cs.fullRange === undefined ? null : cs.fullRange,
+        codedWidth: f.codedWidth, codedHeight: f.codedHeight,
+        copyTo: false, copyErr: '',
+      };
+      if (f.format) {
+        try {
+          const buf = new Uint8Array(f.allocationSize());
+          await f.copyTo(buf);
+          r.frame.copyTo = true;
+        } catch(e) { r.frame.copyErr = e.message || String(e); }
+      } else {
+        r.frame.copyErr = 'format is null — opaque/GPU frame, planes not reachable';
+      }
+    } catch(e) {
+      r.notes.push('Could not take a frame from the loaded video: ' + (e.message || String(e)));
+    } finally { try { f && f.close(); } catch(e) {} }
+  }
+
+  // Verdict. Compositing needs EITHER reachable planes OR a real HDR canvas;
+  // encoding needs at least one 10-bit codec. Both, or there is no HDR path.
+  r.canEncode = r.encode.some(e => e.ok);
+  r.canEncodeFree = r.encode.some(e => e.ok && e.licence === 'royalty-free');
+  // Three independent ways to get captions onto HDR pixels, best first.
+  r.routes = [];
+  if (r.frame && r.frame.copyTo)      r.routes.push({ id: 'planes', label: 'blend into the decoded frame planes (video passes through untouched)' });
+  if (r.canvas.some(c => c.ok))       r.routes.push({ id: 'canvas2d', label: 'composite on an HDR 2D canvas' });
+  if (r.webgl.some(c => c.ok))        r.routes.push({ id: 'webgl',   label: 'composite on an HDR WebGL2 canvas' });
+  // Prefer a codec the destination will actually accept as HDR over one that
+  // merely encodes: a perfect VP9/WebM file that Instagram re-encodes to SDR is
+  // worth less than an HEVC one it ingests.
+  const rank = b => (b.label.startsWith('HEVC') ? 0 : b.label.startsWith('AV1') ? 1 : 2);
+  const built = r.build.filter(b => b.encode).sort((a, b) => rank(a) - rank(b));
+  if (built.length) r.routes.push({ id: 'build', label: 'decode with ffmpeg, blend captions into the 10-bit planes, encode a frame we build ourselves', codec: built[0].codec, codecLabel: built[0].label, licence: built[0].licence, delivery: (r.families.find(f => f.label === built[0].label) || {}).delivery });
+  r.canComposite = r.routes.length > 0;
+  r.possible = r.canComposite && r.canEncode;
+  r.route = r.routes[0] || null;
+  console.log('HDR export probe:', r);
+  return r;
+}
+
+async function checkHdrExport() {
+  const btn = document.getElementById('hdrCheckBtn'), out = document.getElementById('hdrCaps');
+  const badge = document.getElementById('hdrExportBadge');
+  btn.disabled = true; btn.textContent = 'Checking...';
+  try {
+    const r = await probeHdrExport();
+    const yn = v => `<span class="sett-badge ${v ? 'ok' : 'no'}">${v ? 'yes' : 'no'}</span>`;
+    const row = (l, v) => `<div class="sett-row"><div class="sett-row-label">${esc(l)}</div>${yn(v)}</div>`;
+    badge.className = 'sett-badge ' + (r.possible ? 'ok' : 'no');
+    badge.textContent = r.possible ? 'Possible' : 'Not possible here';
+    const codecRows = r.families.map(f =>
+      `<div class="sett-row"><div class="sett-row-label">${esc(f.label)}` +
+      `<div class="sett-row-sub">${esc(f.licence)} · ${esc(f.container)} · decode ${f.decode ? 'yes' : 'no'}` +
+      `<br>${esc(f.delivery)}` +
+      (f.encode ? `<br>encodes as ${esc(f.encode)}` : `<br>none of ${f.tried} profile/level combinations accepted`) +
+      `</div></div>${yn(!!f.encode)}</div>`).join('');
+    const f = r.frame;
+    out.innerHTML =
+      codecRows +
+      r.canvas.map(c => row('2D canvas ' + c.space, c.ok) +
+        (c.granted && !c.ok ? `<div class="field-hint">asked for ${esc(c.space)}, got ${esc(c.granted)}</div>` : '')).join('') +
+      r.webgl.map(c => row('WebGL2 canvas ' + c.space, c.ok) +
+        (!c.ok ? `<div class="field-hint">${esc(c.err || ('asked for ' + c.space + ', got ' + (c.granted || 'nothing')))}${c.float16 ? ' · float16 buffer available' : ''}</div>` : '')).join('') +
+      row('canvas HDR mode API', r.api.configureHighDynamicRange) +
+      r.build.map(b => row('build + encode a 10-bit HLG frame (' + b.label + ')', b.encode) +
+        (b.encode
+          ? `<div class="field-hint">encoder returned ${b.bytes} bytes from a frame we constructed — this route works</div>`
+          : `<div class="field-hint">${esc(b.why || 'failed')}</div>`)).join('') +
+      (f
+        ? row('10-bit frame planes reachable', f.copyTo) +
+          `<div class="field-hint">frame: format ${esc(String(f.format))} · ` +
+          `${esc([f.primaries, f.transfer, f.matrix].filter(Boolean).join('/') || 'colour space not reported')}` +
+          (f.copyErr ? `<br>${esc(f.copyErr)}` : '') + `</div>`
+        : '') +
+      r.notes.map(n => `<div class="field-hint">${esc(n)}</div>`).join('') +
+      `<div class="field-hint" style="margin-top:8px"><strong>Verdict:</strong> ` +
+      (r.possible
+        ? `HDR export is possible here. Route: ${esc(r.route.label)}` +
+          (r.route.codecLabel ? `, encoding as ${esc(r.route.codecLabel)} (${esc(r.route.licence)})` : '') + '.' +
+          (r.route.delivery ? `<br><strong>Where that file can go:</strong> ${esc(r.route.delivery)}.` : '') +
+          (r.routes.length > 1 ? ` ${r.routes.length} routes available in total.` : '') +
+          (r.families.some(f => f.label.startsWith('HEVC') && f.encode)
+            ? ''
+            : `<br>No HEVC encoder was found, and Instagram's HDR ingest is built on HEVC. Chrome 130+ does support hardware HEVC encoding on Windows and macOS, so this is usually a GPU driver or hardware-acceleration setting rather than a missing feature — check chrome://gpu for "Video Encode" and make sure "Use graphics acceleration when available" is on in Settings → System.`)
+        : !r.canEncode ? 'no 10-bit HDR encoder is available here, so HDR export cannot work on this machine.'
+        : 'there is a 10-bit encoder, but no way to draw captions in HDR — no reachable frame planes, no HDR canvas in 2D or WebGL, and the encoder would not take a frame we built ourselves.') +
+      ` Tone-mapped SDR export is unaffected either way.</div>`;
+  } catch(e) {
+    console.error('HDR probe failed', e);
+    badge.className = 'sett-badge no'; badge.textContent = 'Failed';
+    out.innerHTML = `<div class="field-hint">Probe failed: ${esc(e.message || String(e))}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Check HDR export support';
+  }
+}
+
+async function checkFFCaps() {
+  const btn = document.getElementById('ffCheckBtn'), out = document.getElementById('ffCaps');
+  const badge = document.getElementById('ffHdrBadge');
+  btn.disabled = true; btn.textContent = 'Loading core...';
+  out.innerHTML = '<div class="field-hint">Downloading and starting ffmpeg — this can take a moment.</div>';
+  try {
+    const caps = await probeCapabilities();
+    const yn = v => `<span class="sett-badge ${v ? 'ok' : 'no'}">${v ? 'yes' : 'no'}</span>`;
+    const row = (label, v) => `<div class="sett-row"><div class="sett-row-label">${esc(label)}</div>${yn(v)}</div>`;
+    badge.className = 'sett-badge ' + (caps.proper ? 'ok' : 'no');
+    badge.textContent = caps.proper ? 'Proper' : 'Approximated';
+    out.innerHTML =
+      row('zscale', caps.filters.zscale) + row('tonemap', caps.filters.tonemap) +
+      row('libplacebo', caps.filters.libplacebo) + row('colorspace', caps.filters.colorspace) +
+      row('lutyuv', caps.filters.lutyuv) + row('lut3d (reference path)', caps.filters.lut3d) +
+      row('setparams', caps.filters.setparams) +
+      row('drawtext (captions)', caps.filters.drawtext) +
+      row('libx264', caps.encoders.libx264) + row('libx265 (10-bit HDR out)', caps.encoders.libx265) +
+      `<div class="field-hint" style="margin-top:8px">` +
+        `API ${esc(caps.gen)} · ${caps.filters._count || '?'} filters<br>` +
+        `<strong>HDR source would use:</strong> ${esc(caps.hdrPlan.name)} — ${esc(caps.hdrPlan.note || '')}<br>` +
+        (caps.proper
+          ? 'This build can tone map properly. The app will use it automatically.'
+          : 'No tone-mapping filter here, so HDR uses the built-in approximation: exact luma, saturation within ~7% for HLG, and gamut error on saturated colour.') +
+      `</div>`;
+  } catch (e) {
+    console.error('capability check failed', e);
+    badge.className = 'sett-badge no'; badge.textContent = 'Failed';
+    out.innerHTML = `<div class="field-hint">Could not load this core: ${esc(e.message || String(e))}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Check capabilities';
+  }
+}
+
+function openSett() { renderFFSettings(); document.getElementById('settOverlay').classList.add('open'); document.getElementById('settDrawer').classList.add('open'); }
 function closeSett() { document.getElementById('settOverlay').classList.remove('open'); document.getElementById('settDrawer').classList.remove('open'); }
 
 // UTILS
