@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- No cache-control meta here on purpose. Adding one to stop stale code
+     interfered with the service worker below, which is what grants cross-origin
+     isolation - and without that SharedArrayBuffer disappears and the
+     multi-threaded ffmpeg core cannot load at all. The build stamp in the
+     diagnostics panel is how stale code gets spotted instead. -->
 <title>CaptionCraft</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -522,9 +527,11 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
         <input type="text" class="field" id="settFFCore" style="margin-top:6px" spellcheck="false"
                placeholder="ffmpeg-core.js URL" onchange="onFFCoreEdit(this.value)">
         <div class="field-hint">
-          Which ffmpeg build to load. Press Check capabilities below to see what it can do —
-          if a build turns up that has zscale or libplacebo, the app switches to the proper
-          HDR conversion on its own, with nothing else to change.
+          Which ffmpeg build to load. The multi-threaded core sounds faster and has measured
+          slower here twice: threading helps the decode, but every decoded frame then crosses
+          a worker boundary as a copy, and this pipeline moves about 3&nbsp;MB per frame.
+          If one build decodes faster than another on your machine, the timing block in the
+          export diagnostics will show it — compare the <em>ffmpeg decode</em> line.
         </div>
         <button class="btn btn-secondary btn-sm" id="ffCheckBtn" onclick="checkFFCaps()" style="margin-top:8px">Check capabilities</button>
         <div id="ffCaps" style="margin-top:8px"></div>
@@ -951,6 +958,27 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
         <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
         Burn Captions into Video
       </button>
+      <div style="display:flex;align-items:center;gap:10px;margin:10px 0;flex-wrap:wrap">
+        <label class="field-label" style="margin:0">Export quality</label>
+        <select class="field" id="qualitySel" onchange="setExportQuality(this.value)" style="width:auto;flex:0 0 auto"></select>
+        <span class="field-hint" id="qualityNote" style="margin:0"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin:8px 0">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;color:var(--ink2)">
+          <input type="checkbox" id="testExportChk" onchange="onTestExportToggle(this.checked)" style="width:15px;height:15px">
+          Quick test — burn only the first few seconds
+        </label>
+      </div>
+      <div id="hdrOptRow" class="notice notice-info" style="display:none;text-align:left">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        <span>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+            <input type="checkbox" id="hdrKeepChk" onchange="onHdrKeepToggle(this.checked)" style="width:16px;height:16px">
+            Keep HDR instead of tone mapping
+          </label>
+          <span id="hdrOptNote" style="display:block;margin-top:4px;font-weight:400"></span>
+        </span>
+      </div>
       <div class="notice notice-info" style="text-align:left">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         <span>Runs entirely in your browser. Nothing is uploaded anywhere. First use loads ~30MB of tools — cached permanently after that.</span>
@@ -1014,6 +1042,25 @@ let outlineStrength = 1;   // 0 = no outline, 1 = default, 1.6 = heavy
 let modelCached = false;
 let ffmpegInstance = null;
 let ffmpegLoaded = false;
+// BUILD STAMP. index.html is a static file, so a browser will happily keep
+// serving a cached copy - and a diagnostics panel from stale code looks exactly
+// like a diagnostics panel from current code. A whole debugging round was spent
+// on a report produced by a route that had already been deleted, so every
+// report now carries the build it came from.
+//
+// Declared HERE, at the top, and not next to the code that uses it: `const` is
+// in the temporal dead zone until its declaration is reached, so a reference
+// from earlier in the file throws at load time and every function defined after
+// that point is never created. That took the whole app out - the file parses
+// perfectly, so nothing catches it but running the page.
+// Defined early: the model cache key depends on it, and that is read while the
+// settings panel first renders.
+const isMobileBrowser = () =>
+  /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+const BUILD_STAMP = '2026-08-20 09:26';
+
 let ffLog = [];
 
 // Position — 0,0 = center, Y positive = up
@@ -1031,9 +1078,107 @@ if (apiKey) {
 // ══════════════════════════════════════════════
 const WHISPER_PKG_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
 const WHISPER_MODEL_ID = 'Xenova/whisper-base.en';
-const MODEL_VERSION = 'whisper-base.en-fp32-v1';
+// QUANTISATION IS PER DEVICE, and the cache key has to say which.
+//
+// fp32 weights are about 280 MB. iOS Safari enforces a hard per-tab memory
+// ceiling and kills the tab rather than swapping, so loading fp32 on a phone
+// tends to die partway through with no error worth reading - which matches the
+// transcription failing there. q8 is roughly a quarter of the size and several
+// times faster to run, at a small accuracy cost that matters far less than not
+// working at all.
+//
+// The version string carries the dtype so a phone and a desktop do not fight
+// over one cache entry, and so switching devices re-downloads rather than
+// silently reusing weights of the wrong precision.
+const MODEL_DTYPE = () => (isMobileBrowser() ? 'q8' : 'fp32');
+const MODEL_VERSION = () => 'whisper-base.en-' + MODEL_DTYPE() + '-v2';
 const TRANSFORMERS_CACHE_NAME = 'transformers-cache';
 let cachedTranscriber = null;
+
+// Whisper is trained on 16 kHz mono and silently produces nonsense at any other
+// rate, so the audio has to arrive at exactly that.
+//
+// The trap this replaces: new AudioContext({sampleRate: 16000}) is a REQUEST,
+// not a guarantee. Safari - desktop and iOS - ignores it and gives you the
+// hardware rate, normally 48 kHz. The old code took that at face value and
+// hardcoded 16000 everywhere downstream, so on any Apple device Whisper was fed
+// audio running at three times the speed it expected, and every timestamp came
+// out three times wrong. Nothing errored; the transcription was just empty or
+// gibberish, which is the worst way for this to fail.
+//
+// So: decode at whatever rate the platform gives, then resample explicitly.
+const WHISPER_SR = 16000;
+
+async function extractAudioMono16k(file) {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!Ctx) throw new Error('This browser has no Web Audio support, so audio cannot be read.');
+  const bytes = await file.arrayBuffer();
+
+  let ctx;
+  try { ctx = new Ctx({ sampleRate: WHISPER_SR }); } catch(e) { ctx = new Ctx(); }
+  // Older Safari only implements the callback form and returns undefined from
+  // decodeAudioData, so accept either.
+  const decoded = await new Promise((resolve, reject) => {
+    let settled = false;
+    const ok = b => { if (!settled) { settled = true; resolve(b); } };
+    const no = e => { if (!settled) { settled = true; reject(e || new Error('could not decode the audio track')); } };
+    let ret;
+    try { ret = ctx.decodeAudioData(bytes, ok, no); } catch(e) { return no(e); }
+    if (ret && typeof ret.then === 'function') ret.then(ok, no);
+  });
+  try { ctx.close(); } catch(e) {}
+
+  // Downmix. Taking channel 0 alone loses everything on a video whose speech
+  // sits on the right, which does happen with external mics.
+  const n = decoded.length, chans = decoded.numberOfChannels;
+  let mono;
+  if (chans === 1) {
+    mono = decoded.getChannelData(0).slice();
+  } else {
+    mono = new Float32Array(n);
+    for (let c = 0; c < chans; c++) {
+      const d = decoded.getChannelData(c);
+      for (let i = 0; i < n; i++) mono[i] += d[i] / chans;
+    }
+  }
+  const srcRate = decoded.sampleRate;
+  if (srcRate === WHISPER_SR) return mono;
+  console.warn(`Audio decoded at ${srcRate} Hz, not ${WHISPER_SR} — resampling.`);
+  return await resampleTo16k(mono, srcRate, OfflineCtx);
+}
+
+// Prefer the browser's own resampler: it band-limits properly, and dropping
+// 48k to 16k without a low-pass folds everything above 8 kHz back down into the
+// speech band as aliasing, which is exactly where the consonants live.
+async function resampleTo16k(samples, srcRate, OfflineCtx) {
+  const outLen = Math.max(1, Math.round(samples.length * WHISPER_SR / srcRate));
+  if (OfflineCtx) {
+    try {
+      const off = new OfflineCtx(1, outLen, WHISPER_SR);
+      const buf = off.createBuffer(1, samples.length, srcRate);
+      buf.copyToChannel ? buf.copyToChannel(samples, 0) : buf.getChannelData(0).set(samples);
+      const src = off.createBufferSource();
+      src.buffer = buf; src.connect(off.destination); src.start();
+      const rendered = await off.startRendering();
+      return rendered.getChannelData(0).slice();
+    } catch(e) {
+      console.warn('OfflineAudioContext resample failed, falling back to JS:', e);
+    }
+  }
+  // Fallback: average every source sample landing in an output window. Crude,
+  // but the averaging is itself a low-pass, so it does not alias the way naive
+  // nearest-sample decimation would.
+  const out = new Float32Array(outLen);
+  const ratio = samples.length / outLen;
+  for (let i = 0; i < outLen; i++) {
+    const a = Math.floor(i * ratio), b = Math.min(samples.length, Math.max(a + 1, Math.floor((i + 1) * ratio)));
+    let sum = 0;
+    for (let j = a; j < b; j++) sum += samples[j];
+    out[i] = sum / (b - a);
+  }
+  return out;
+}
 
 // Loads (or reuses) the real transcription pipeline. Downloads + caches the
 // actual ONNX weights via the browser Cache API — this is the same model
@@ -1044,16 +1189,16 @@ async function getTranscriber(onProgress) {
   const { pipeline, env } = await import(WHISPER_PKG_URL);
   env.allowLocalModels = false; env.useBrowserCache = true;
   cachedTranscriber = await pipeline('automatic-speech-recognition', WHISPER_MODEL_ID, {
-    device: 'wasm', dtype: 'fp32',
+    device: 'wasm', dtype: MODEL_DTYPE(),
     progress_callback: onProgress || (() => {})
   });
-  localStorage.setItem('cc_model_version', MODEL_VERSION);
+  localStorage.setItem('cc_model_version', MODEL_VERSION());
   modelCached = true;
   return cachedTranscriber;
 }
 
 function checkModelCache() {
-  modelCached = localStorage.getItem('cc_model_version') === MODEL_VERSION;
+  modelCached = localStorage.getItem('cc_model_version') === MODEL_VERSION();
   updateModelUI();
 }
 checkModelCache();
@@ -1139,10 +1284,16 @@ function goTo(n) {
   currentStep = n; renderNav(n);
   if (n === 4) renderEditor();
   if (n === 5) initPosition();
-  if (n === 6) renderBurnStep();
+  if (n === 6) { renderBurnStep(); refreshHdrOption(); renderQualitySelect(); }
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 renderNav(1);
+console.log('CaptionCraft build ' + BUILD_STAMP + ' — if this is older than your last edit, the page is cached: hard-reload with Ctrl+Shift+R.');
+try {
+  const _iso = isolationReport();
+  console.log('Multi-threading ' + (_iso.ok ? 'available' : 'NOT available') +
+              ' — ' + (_iso.blocker || 'cross-origin isolation is active'));
+} catch(e) {}
 
 // ══════════════════════════════════════════════
 // UPLOAD
@@ -1169,6 +1320,9 @@ function loadVideo(f) {
 
 function removeVideo() {
   vFile = null; vDur = 0; vH = 800; vW = 450;
+  hdrKeep = false;
+  const hk = document.getElementById('hdrKeepChk'); if (hk) hk.checked = false;
+  const hr = document.getElementById('hdrOptRow'); if (hr) hr.style.display = 'none';
   const v = document.getElementById('vidEl'); if (v.src) { URL.revokeObjectURL(v.src); v.src = ''; }
   document.getElementById('vfile').value = '';
   document.getElementById('vidPreviewWrap').style.display = 'none';
@@ -1214,7 +1368,8 @@ async function startTranscription() {
     document.getElementById('doneTitle').textContent = captions.length + ' caption lines generated';
     document.getElementById('transDone').style.display = 'block';
   } catch (e) {
-    showToast('Transcription failed: ' + e.message);
+    console.error('Transcription failed:', e);
+    showToast('Transcription failed: ' + describeError(e));
     document.getElementById('transBtn-wrap').style.display = 'block';
     document.getElementById('transProgress').style.display = 'none';
   }
@@ -1257,22 +1412,17 @@ async function transcribeViaBrowser() {
       if (p.status === 'ready') setTransProg('Loading model into memory...', 58);
     });
     setTransProg('Extracting audio...', 62);
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-    const buf = await vFile.arrayBuffer();
-    const audioBuf = await audioCtx.decodeAudioData(buf);
-    const channelData = audioBuf.getChannelData(0);
-    const float32 = new Float32Array(channelData.length);
-    for (let i = 0; i < channelData.length; i++) float32[i] = channelData[i];
-    audioCtx.close();
+    const float32 = await extractAudioMono16k(vFile);
+    if (!float32.length) throw new Error('That video has no audio track to transcribe.');
 
     // Find first non-silent frame
     let trimOffset = 0;
-    for (let i = 0; i < Math.min(float32.length, 16000 * 30); i++) {
-      if (Math.abs(float32[i]) > 0.005) { trimOffset = Math.max(0, i - 16000); break; }
+    for (let i = 0; i < Math.min(float32.length, WHISPER_SR * 30); i++) {
+      if (Math.abs(float32[i]) > 0.005) { trimOffset = Math.max(0, i - WHISPER_SR); break; }
     }
     const trimmed = trimOffset > 0 ? float32.slice(trimOffset) : float32;
-    const offsetSec = trimOffset / 16000;
-    const durSec = Math.ceil(trimmed.length / 16000);
+    const offsetSec = trimOffset / WHISPER_SR;
+    const durSec = Math.ceil(trimmed.length / WHISPER_SR);
 
     setTransProg('Transcribing... (30–90 seconds for a 60s video)', 70);
     const sc = document.getElementById('scriptInp').value.trim();
@@ -1827,20 +1977,33 @@ function getOutName() {
 // 0.11 doesn't need but 0.12 does.
 // ---------------------------------------------------------------------------
 const FF_ENGINES = {
+  // MEASURED, not assumed. On this class of machine the multi-threaded core has
+  // been slower than both single-threaded cores, twice - decode gets threads,
+  // but every raw frame then crosses a worker boundary as a copy, and this
+  // pipeline moves ~3 MB per frame. The copies cost more than the threads save.
+  // The labels say so, so the option is not tried hopefully a third time.
   '0.11': {
-    label: 'ffmpeg.wasm 0.11 (bundled)',
+    label: 'ffmpeg.wasm 0.11 (bundled, single-threaded)',
     lib: null, // loaded by the <script> tag in <head>
     core: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
   },
   '0.12': {
-    label: 'ffmpeg.wasm 0.12',
+    label: 'ffmpeg.wasm 0.12 (single-threaded, newer build)',
     lib: 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js',
-    core: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+    core: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js',
     classWorker: 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/814.ffmpeg.js',
   },
   '0.12-mt': {
-    label: 'ffmpeg.wasm 0.12 multi-thread',
+    label: 'ffmpeg.wasm 0.12 multi-thread (measured SLOWER here)',
     lib: 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js',
+    // UMD, deliberately, and NOT esm like the single-threaded core above.
+    // The ESM multi-thread core spawns its pthreads with
+    //   new Worker(new URL("ffmpeg-core.worker.js", import.meta.url))
+    // and import.meta.url for a module loaded from a blob IS that blob URL,
+    // which has no path for a relative filename to resolve against. The worker
+    // never starts and the main thread waits for a pthread forever - which is
+    // a hang, not an error, so nothing reports it. The UMD build uses
+    // new Worker(pthreadMainJs), taking the workerURL we inject, and works.
     core: 'https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/umd/ffmpeg-core.js',
     classWorker: 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/814.ffmpeg.js',
     mt: true,
@@ -1880,12 +2043,135 @@ async function toBlobURL(url, type) {
 const toUint8 = async src =>
   src instanceof Uint8Array ? src : new Uint8Array(await (src.arrayBuffer ? src.arrayBuffer() : src));
 
+// A long encode with no visible movement is indistinguishable from a crash, and
+// that is exactly how the software HDR path looked: ffmpeg only reports a ratio
+// once it has real output to measure, so the bar sat at its starting value for
+// minutes while everything was in fact fine.
+//
+// So the clock runs on its own timer rather than on ffmpeg's callbacks. Elapsed
+// time always advances, which answers "is this working"; the estimate appears
+// once there is enough progress for it to mean anything, which answers "should
+// I wait". An estimate from the first 1% of a video encode is noise, so it is
+// withheld until then rather than shown and repeatedly contradicted.
+let _burnStart = 0, _burnTicker = null, _burnRatio = 0;
+
+function fmtDur(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ' + String(s % 60).padStart(2, '0') + 's';
+  return Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0') + 'm';
+}
+
+function beginBurnClock() {
+  _burnStart = Date.now(); _burnRatio = 0;
+  clearInterval(_burnTicker);
+  _burnTicker = setInterval(updateBurnClock, 1000);
+  updateBurnClock();
+}
+
+function endBurnClock() { clearInterval(_burnTicker); _burnTicker = null; _burnStart = 0; }
+
+function updateBurnClock() {
+  const sub = document.getElementById('burnSub');
+  if (!sub || !_burnStart) return;
+  const elapsed = Date.now() - _burnStart;
+  let txt = fmtDur(elapsed) + ' elapsed';
+  if (_burnRatio > 0) txt = Math.round(_burnRatio * 100) + '% · ' + txt;
+  if (_burnRatio >= 0.02 && elapsed > 4000) {
+    txt += ' · about ' + fmtDur(elapsed / _burnRatio - elapsed) + ' left';
+  }
+  sub.textContent = txt;
+}
+
+// Every ffmpeg run reports progress, including the one-frame capability probes.
+// Those finish instantly, so their ratio shoots to 1 and the estimate reads
+// "about 0s left" while the real work has not started - which is exactly the
+// nonsense shown during a two-minute capability check. Progress is therefore
+// only believed while an actual export is running.
+let _burnTracking = false;
+function trackEncodeProgress(on) { _burnTracking = !!on; if (!on) _burnRatio = 0; }
+
 function onBurnProgress(ratio) {
-  if (!(ratio > 0)) return;
-  const pct = Math.round(ratio * 100);
-  const fill = document.getElementById('burnFill'), sub = document.getElementById('burnSub');
-  if (fill) fill.style.width = Math.max(40, pct) + '%';
-  if (sub) sub.textContent = 'Burning captions... ' + pct + '%';
+  if (!_burnTracking) return;
+  if (ratio > 0 && ratio <= 1) _burnRatio = ratio;
+  const fill = document.getElementById('burnFill');
+  if (fill && _burnRatio > 0) fill.style.width = Math.max(40, Math.round(_burnRatio * 100)) + '%';
+  updateBurnClock();
+}
+
+// Where did the time actually go?
+//
+// Several rounds of this were spent guessing at bottlenecks and optimising the
+// wrong half. An export is decode, then encode, then mux, and those have wildly
+// different costs depending on which route ran - so measure them instead.
+// Reported to the console and into the diagnostics panel, because "it took 45
+// seconds" is not actionable and "38s decoding, 2s encoding" is.
+let _perf = null;
+function perfStart() { _perf = { t0: performance.now(), stages: {}, counts: {} }; }
+function perfAdd(stage, ms, count) {
+  if (!_perf) return;
+  _perf.stages[stage] = (_perf.stages[stage] || 0) + ms;
+  if (count) _perf.counts[stage] = (_perf.counts[stage] || 0) + count;
+}
+async function perfTime(stage, fn, count) {
+  const t = performance.now();
+  try { return await fn(); } finally { perfAdd(stage, performance.now() - t, count); }
+}
+function perfReport() {
+  if (!_perf) return '';
+  const total = performance.now() - _perf.t0;
+  const rows = Object.entries(_perf.stages).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `  ${k.padEnd(14)} ${(v / 1000).toFixed(1)}s  ${Math.round(v / total * 100)}%` +
+      (_perf.counts[k] ? `  (${_perf.counts[k]} frames, ${(_perf.counts[k] / (v / 1000)).toFixed(1)} fps)` : ''));
+  const txt = `Export took ${(total / 1000).toFixed(1)}s\n` + rows.join('\n');
+  console.log(txt);
+  return txt;
+}
+
+// Bound anything that can hang. A hang is strictly worse than a failure: it
+// gives the user no message, no elapsed meaning and no way out, and every probe
+// in this file talks to a codec or a wasm worker that can stop answering.
+// Note this does not CANCEL the underlying work - it stops us waiting on it.
+function withTimeout(promise, ms, what) {
+  let t;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => clearTimeout(t)),
+    new Promise((_, rej) => { t = setTimeout(
+      () => rej(new Error(what + ' timed out after ' + Math.round(ms / 1000) + 's')), ms); }),
+  ]);
+}
+
+// Turn whatever was thrown into something a human can act on.
+//
+// "Burn failed: undefined" came from `e.message` on a value that was not an
+// Error. ffmpeg.wasm 0.12 runs the core in a worker and can reject with a bare
+// string, a numeric exit code, or an ErrorEvent, none of which carry .message -
+// so the one place the user looks for a reason showed the least useful word in
+// the language. Every user-facing catch goes through here instead.
+//
+// The ffmpeg log tail is appended because that, not the exception, is almost
+// always the real diagnosis: the thrown value says "it failed", the log says
+// which file was missing or which option was rejected.
+function describeError(e) {
+  let head;
+  if (e == null) head = 'unknown error';
+  else if (typeof e === 'string') head = e;
+  else if (typeof e === 'number') head = 'ffmpeg exited with code ' + e;
+  else if (e.message) head = String(e.message);
+  else if (e.reason) head = String(e.reason);
+  else if (e.type) head = 'failed with a ' + e.type + ' event';
+  else {
+    const str = String(e);
+    head = str === '[object Object]'
+      ? ((e.constructor && e.constructor.name) || 'unknown error')
+      : str;
+  }
+  const parts = [head];
+  const log = (typeof ffLog !== 'undefined' && ffLog ? ffLog : []).slice(-60).join('\n');
+  const m = log.match(/^[^\n]*(?:Error|Invalid|Unrecognized|No such|not found|Unable to|Cannot|Failed)[^\n]*/mi);
+  if (m && head.indexOf(m[0].trim()) === -1) parts.push(m[0].trim());
+  return parts.join(' — ');
 }
 
 const captureLog = ({ message }) => { ffLog.push(message); if (ffLog.length > 4000) ffLog.shift(); };
@@ -1895,6 +2181,31 @@ async function loadFFmpeg() {
   const id = ffEngineId();
   const eng = FF_ENGINES[id] || FF_ENGINES['0.11'];
   const core = ffCoreURL();
+  // The multi-threaded core is built on SharedArrayBuffer, which the browser
+  // only exposes on a cross-origin-isolated page. Without it the core fails
+  // deep inside its own worker startup, where the error carries no message.
+  // Checking here turns that into a sentence the user can act on.
+  // Judge by the CORE URL as well as the engine flag. A core URL saved from an
+  // earlier experiment can point at the multi-threaded build while the engine is
+  // set to something else, and that combination sails past a flag-only check and
+  // then dies inside the core with a bare "SharedArrayBuffer is not defined".
+  const needsIsolation = !!eng.mt || /core-mt/.test(String(core));
+  const isolated = !!(self.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined');
+  if (needsIsolation && !isolated) {
+    // Do not fail the export over a settings mismatch. Fall back to the
+    // single-threaded core, which needs nothing special, and say so.
+    console.warn('Cross-origin isolation is not active, so the multi-threaded core cannot load. ' +
+                 'Falling back to the single-threaded engine.');
+    showToast('Multi-threaded engine unavailable here — using the single-threaded one');
+    try { localStorage.setItem('cc_ff_engine', '0.11'); localStorage.removeItem('cc_ff_core'); } catch(e) {}
+    const fb = FF_ENGINES['0.11'];
+    await loadScriptOnce(fb.lib);
+    ffmpegInstance = await load011(fb.core);
+    ffmpegInstance.engineId = '0.11';
+    ffmpegLoaded = true;
+    try { renderFFSettings(); } catch(e) {}
+    return ffmpegInstance;
+  }
   await loadScriptOnce(eng.lib);
   ffmpegInstance = id.startsWith('0.12') ? await load012(core, eng) : await load011(core);
   ffmpegInstance.engineId = id;
@@ -1921,29 +2232,87 @@ async function load011(corePath) {
   };
 }
 
+// WHY THE CORE URL BUILD MATTERS, and why this retries.
+//
+// "Burn failed: Error: failed to import ffmpeg-core.js" is a MASKED error. The
+// 0.12 worker does:
+//
+//   try { importScripts(coreURL) }
+//   catch { self.createFFmpegCore = (await import(coreURL)).default;
+//           if (!self.createFFmpegCore) throw "failed to import ffmpeg-core.js" }
+//
+// So importScripts failed, the fallback then imported the UMD blob as an ES
+// module, found no `default` export - UMD has none - and reported THAT. The
+// original exception is swallowed, which is why the message says nothing useful.
+//
+// The fallback path is written for ESM cores, and the ESM builds do end in
+// `export default createFFmpegCore`. Handing over an ESM core makes
+// importScripts fail by design and the dynamic import succeed, which is the
+// route the library actually supports for a blob. So ESM is tried first and the
+// other build is tried second, because which one works depends on the core, the
+// browser and whether the page is cross-origin isolated - and one retry costs a
+// couple of seconds against an error the user cannot otherwise act on.
+const otherCoreBuild = url =>
+  url.includes('/esm/') ? url.replace('/esm/', '/umd/')
+  : url.includes('/umd/') ? url.replace('/umd/', '/esm/')
+  : null;
+
 async function load012(coreURL, eng) {
   const Ctor = window.FFmpegWASM?.FFmpeg;
   if (!Ctor) throw new Error('0.12 library did not expose FFmpegWASM.FFmpeg');
-  const ff = new Ctor();
-  ff.on('log', captureLog);
-  ff.on('progress', ({ progress }) => onBurnProgress(progress));
-  const opts = {
-    coreURL: await toBlobURL(coreURL, 'text/javascript'),
-    wasmURL: await toBlobURL(coreURL.replace(/\.js$/, '.wasm'), 'application/wasm'),
+
+  // A failed load can leave the instance and its worker in a bad state, so each
+  // attempt gets a fresh one rather than retrying on the wreckage of the last.
+  const attempt = async (url) => {
+    const ff = new Ctor();
+    ff.on('log', captureLog);
+    ff.on('progress', ({ progress }) => onBurnProgress(progress));
+    const opts = {
+      coreURL: await toBlobURL(url, 'text/javascript'),
+      wasmURL: await toBlobURL(url.replace(/\.js$/, '.wasm'), 'application/wasm'),
+    };
+    // 0.12 spawns its OWN worker from a code-split chunk sitting next to the
+    // library, and `new Worker()` refuses a cross-origin URL outright. Loading
+    // the library from a CDN therefore always fails with
+    //   Failed to construct 'Worker': Script at '.../814.ffmpeg.js'
+    //   cannot be accessed from origin '...'
+    // classWorkerURL is the escape hatch: fetch that chunk ourselves and hand it
+    // over as a blob, which counts as same-origin. The chunk's hashed name can
+    // change between releases — if the error names a different file, put that
+    // name in classWorker below.
+    if (eng.classWorker) opts.classWorkerURL = await toBlobURL(eng.classWorker, 'text/javascript');
+    // The MT core additionally pulls a worker script alongside the wasm.
+    if (eng.mt) opts.workerURL = await toBlobURL(url.replace(/\.js$/, '.worker.js'), 'text/javascript');
+    await ff.load(opts);
+    return ff;
   };
-  // 0.12 spawns its OWN worker from a code-split chunk sitting next to the
-  // library, and `new Worker()` refuses a cross-origin URL outright. Loading
-  // the library from a CDN therefore always fails with
-  //   Failed to construct 'Worker': Script at '.../814.ffmpeg.js'
-  //   cannot be accessed from origin '...'
-  // classWorkerURL is the escape hatch: fetch that chunk ourselves and hand it
-  // over as a blob, which counts as same-origin. The chunk's hashed name can
-  // change between releases — if the error names a different file, put that
-  // name in classWorker below.
-  if (eng.classWorker) opts.classWorkerURL = await toBlobURL(eng.classWorker, 'text/javascript');
-  // The MT core additionally pulls a worker script alongside the wasm.
-  if (eng.mt) opts.workerURL = await toBlobURL(coreURL.replace(/\.js$/, '.worker.js'), 'text/javascript');
-  await ff.load(opts);
+
+  // A core that hangs is worse than one that fails: the UI spins forever with
+  // nothing to report and no way back. The ESM multi-thread core does exactly
+  // that (see the engine table), so every attempt is raced against a deadline
+  // and a timeout is treated as a failure like any other - which lets the
+  // retry below actually run.
+  let ff, firstErr;
+  try {
+    ff = await withTimeout(attempt(coreURL), 45000, 'loading the ffmpeg core');
+  } catch (e) {
+    firstErr = e;
+    const alt = otherCoreBuild(coreURL);
+    console.warn('Core failed to load from', coreURL, '—', describeError(e),
+                 alt ? '— retrying with ' + alt : '— no alternative build to try');
+    if (!alt) throw e;
+    try {
+      ff = await withTimeout(attempt(alt), 45000, 'loading the ffmpeg core');
+      console.log('Loaded the', alt.includes('/esm/') ? 'ESM' : 'UMD', 'core instead.');
+    } catch (e2) {
+      // Report BOTH, because "failed to import" from either one alone is the
+      // masked message and says nothing about which stage actually broke.
+      throw new Error(
+        'Could not load this ffmpeg core. ' +
+        coreURL.split('/').slice(-3).join('/') + ': ' + describeError(firstErr) + '. ' +
+        alt.split('/').slice(-3).join('/') + ': ' + describeError(e2) + '.');
+    }
+  }
   return {
     gen: '0.12', raw: ff,
     exec: args => ff.exec(args),
@@ -1959,13 +2328,53 @@ async function load012(coreURL, eng) {
   };
 }
 
+// THREAD COUNT: derived from the machine, never "auto", never all of it.
+//
+// Two different limits get confused here, so to be explicit:
+//
+//   ffmpeg's -threads 0 means "detect", and what it detects inside wasm does
+//   not match what the browser will actually give it. That mismatch is what
+//   hung the format probe, so the count is always stated explicitly.
+//
+//   The pthread pool is NOT fixed. An earlier version of this comment claimed
+//   it was; reading the core shows getNewWorker() calling allocateUnusedWorker()
+//   whenever it runs dry, so the pool grows on demand. Exceeding it is
+//   therefore not the deadlock it was assumed to be, and there is no reason to
+//   clamp to a small constant.
+//
+// What is left is an ordinary scheduling decision. navigator.hardwareConcurrency
+// is the number of parallel workers the browser is willing to run, so:
+//
+//   leave one core        so the page stays responsive and the encode does not
+//                         fight the compositor for the thread drawing its own
+//                         progress bar
+//   cap at 8              x265 scales well to about here and then flattens,
+//                         while every extra pthread is another Worker with its
+//                         own stack and wasm memory view - past this the memory
+//                         costs more than the speed is worth, and mobile
+//                         browsers are quickest to kill a tab for it
+//   floor at 1            hardwareConcurrency can be absent or 1
+// Measured downward, not up. Eight threads made a 1080p decode SLOWER than one:
+// wasm pthreads synchronise through atomics on shared memory, and at this frame
+// size the coordination cost outruns the parallel gain. Four is the point where
+// it still helps without thrashing; if a machine has fewer cores it gets fewer.
+const FF_MAX_THREADS = 4;
+
+function ffThreads() {
+  if (!ffIsMultiThread()) return 1;      // the single-threaded core has no others
+  const cores = navigator.hardwareConcurrency || 2;
+  return Math.max(1, Math.min(cores - 1, FF_MAX_THREADS));
+}
+
+const ffThreadArgs = () => ['-threads', String(ffThreads())];
+
 // Inspect the source so we can encode something every player can open.
 // Phone footage is often 10-bit HDR (HLG/PQ); re-encoding it without forcing
 // 8-bit yuv420p yields a High 10 profile MP4 that Windows can't play, and one
 // that looks washed out anywhere the HDR transfer isn't converted.
 async function probeInput(ff, name = 'input.mp4') {
   ffLog = [];
-  try { await ff.exec(['-i', name, '-t', '0.05', '-f', 'null', '-']); } catch(e) { console.warn('probe failed', e); }
+  try { await ff.exec(['-threads', '1', '-i', name, '-t', '0.05', '-f', 'null', '-']); } catch(e) { console.warn('probe failed', e); }
   const log = ffLog.join('\n');
   const vLine = (log.match(/Stream #[^\n]*Video:[^\n]*/) || [''])[0];
   const aLine = (log.match(/Stream #[^\n]*Audio:[^\n]*/) || [''])[0];
@@ -2006,6 +2415,27 @@ async function probeInput(ff, name = 'input.mp4') {
     /Content light level/i.test(log) ? 'MaxCLL/MaxFALL' : null,
     /DOVI configuration record|Dolby Vision/i.test(log) ? 'Dolby Vision RPU' : null,
   ].filter(Boolean);
+  // FRAME RATE. Everything downstream used a hardcoded 30, which is right for
+  // almost no phone footage - 29.97 is the common case, and 24/25/60 all occur.
+  // The video is then muxed at a rate that does not match its real duration
+  // while the audio is copied at its true length, so the two drift apart. A few
+  // milliseconds on a short clip; plainly out of sync over a couple of minutes.
+  const fpsM = log.match(/,\s*([\d.]+)\s*fps\b/);
+  info.fps = fpsM && parseFloat(fpsM[1]) > 0 ? parseFloat(fpsM[1]) : 30;
+  const tbrM = log.match(/,\s*([\d.]+)\s*tbr\b/);
+  if (tbrM && parseFloat(tbrM[1]) > 0 && !fpsM) info.fps = parseFloat(tbrM[1]);
+  // ffmpeg prints both the average rate and the container time base rate. A
+  // large gap between them means variable frame rate, which is worth saying out
+  // loud because it is the reason the decode has to be forced to CFR.
+  info.tbr = tbrM && parseFloat(tbrM[1]) > 0 ? parseFloat(tbrM[1]) : null;
+  info.variableRate = !!(info.tbr && Math.abs(info.tbr - info.fps) / info.fps > 0.02);
+  console.log('Source frame rate:', info.fps, 'fps' + (info.tbr ? ' (tbr ' + info.tbr + ')' : '') +
+              (info.variableRate ? ' — variable rate, decoding will be forced to constant' : ''));
+  // ffmpeg reports the container's display matrix as side data. Without this
+  // the video composites in its stored orientation and comes out sideways.
+  const rotM = log.match(/rotation of\s*(-?[\d.]+)\s*degrees/i);
+  info.rotation = rotM ? ((Math.round(parseFloat(rotM[1]) / 90) * 90) % 360 + 360) % 360 : 0;
+  if (info.rotation) console.log('Source carries a rotation of', info.rotation, 'degrees');
   info.streamLine = vLine;
   console.log('Video stream (' + name + '):', vLine || '(not detected)', info);
   return info;
@@ -2101,6 +2531,26 @@ function showColorReport(inInfo, outInfo, plan, attempts = [], scrubbed = []) {
   const outMeta = (outInfo && outInfo.hdrMeta) || [];
   el.style.display = 'block';
   body.innerHTML =
+    `<div style="margin-bottom:6px;opacity:.75">Build ${esc(BUILD_STAMP)}` +
+      (testExportSeconds > 0 ? ` · quick test (${testExportSeconds}s)` : '') + `</div>` +
+    (_routeNote
+      ? `<div style="margin-bottom:6px"><strong>Why this took the time it did:</strong> ${esc(_routeNote)}</div>`
+      : '') +
+    (_lumaCheck
+      ? `<div style="margin-bottom:6px"><strong>Luma check</strong><br>` +
+        `GPU: mean ${_lumaCheck.gpu.mean.toFixed(1)}, p99 ${_lumaCheck.gpu.p99}, max ${_lumaCheck.gpu.max}<br>` +
+        (_lumaCheck.ff
+          ? `Source: mean ${_lumaCheck.ff.mean.toFixed(1)}, p99 ${_lumaCheck.ff.p99}, max ${_lumaCheck.ff.max}<br>` +
+            `<strong>mean ratio ${_lumaCheck.ratio.toFixed(3)}</strong>, ` +
+            `<strong>highlight ratio ${_lumaCheck.highlightRatio.toFixed(3)}</strong> — ` +
+            `a highlight ratio well under 1 means the HDR range was tone mapped away before compositing, ` +
+            `so the export is HDR-tagged SDR rather than HDR.`
+          : `Source reference unavailable`) + `</div>`
+      : '') +
+    (_hdrFailure
+      ? `<div style="margin-bottom:6px"><strong>HDR export did not run.</strong> Tried: ${esc(_hdrFailure.route)}.<br>` +
+        `Reason: ${esc(_hdrFailure.reason)}<br>This file is the tone-mapped SDR export instead.</div>`
+      : '') +
     `<div><strong>Source:</strong> ${esc(colorSummary(inInfo))}</div>` +
     `<div><strong>Export:</strong> ${esc(colorSummary(outInfo))}</div>` +
     `<div><strong>Colour handling:</strong> ${esc(plan.name)} — ${esc(plan.note || '')}</div>` +
@@ -2124,6 +2574,12 @@ function showColorReport(inInfo, outInfo, plan, attempts = [], scrubbed = []) {
     (differs ? '<div style="margin-top:4px">The two differ — if the export looks wrong, send these lines along.</div>' : '');
   // Plain-text twin of the panel, so the whole thing is one click to hand over.
   lastColorReport = [
+    'Build:           ' + BUILD_STAMP + (testExportSeconds > 0 ? ' (quick test)' : ''),
+    _routeNote ? 'Route note:      ' + _routeNote : null,
+    _lumaCheck ? 'Luma check:      GPU mean/p99/max ' + _lumaCheck.gpu.mean.toFixed(1) + '/' + _lumaCheck.gpu.p99 + '/' + _lumaCheck.gpu.max +
+      (_lumaCheck.ff ? '; source ' + _lumaCheck.ff.mean.toFixed(1) + '/' + _lumaCheck.ff.p99 + '/' + _lumaCheck.ff.max +
+        '; mean ratio ' + _lumaCheck.ratio.toFixed(3) + ', highlight ratio ' + _lumaCheck.highlightRatio.toFixed(3) : '') : null,
+    _hdrFailure ? 'HDR FAILED:      ' + _hdrFailure.route + ' — ' + _hdrFailure.reason : null,
     'Source:          ' + colorSummary(inInfo),
     'Export:          ' + colorSummary(outInfo),
     'Colour handling: ' + plan.name + ' - ' + (plan.note || ''),
@@ -2137,11 +2593,30 @@ function showColorReport(inInfo, outInfo, plan, attempts = [], scrubbed = []) {
     'Plans rejected:  ' + (attempts.length
       ? '\n' + attempts.map(a => '  - ' + a.name + ': ' + a.reason).join('\n')
       : 'none, first plan worked'),
-  ].join('\n');
+  ].filter(Boolean).join('\n');
   console.log('Colour report\n' + lastColorReport);
 }
 
 let lastColorReport = '';
+// A toast disappears before it can be read, and "it failed" with no reason is
+// the least useful thing this app can say. When an HDR route falls back, the
+// reason is kept and shown in the diagnostics panel, which stays on screen.
+let _hdrFailure = null;
+// The luma comparison lives here rather than only in the console, because
+// diagnostics nobody sees are diagnostics that do not exist.
+let _lumaCheck = null;
+// Which export route actually ran, and why the faster ones were not used.
+// Without this "it was not near instant" has no follow-up question.
+let _routeNote = null;
+
+// Every diagnostic round has cost a full export to learn one thing. This runs
+// the real pipeline over the first few seconds instead, so a test is cheap.
+let testExportSeconds = 0;
+const TEST_EXPORT_SECONDS = 4;
+// A test run shortens vDur so every downstream duration calculation is right for
+// the trimmed clip. It has to be put back afterwards on EVERY exit path, or the
+// next full export silently produces four seconds of video.
+let _vDurBeforeTest = null;
 async function copyColorReport(btn) {
   try {
     await navigator.clipboard.writeText(lastColorReport);
@@ -2696,7 +3171,8 @@ function conversionPlans(info, filters) {
 function buildEncodeArgs(filter, info, plan) {
   const vf = plan.pre ? `${plan.pre},${filter}` : filter;
   const args = ['-i', 'input.mp4', '-vf', vf,
-    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '22',
+    ...ffThreadArgs(),
+    '-c:v', 'libx264', '-preset', currentQuality().preset, '-crf', String(currentQuality().crf),
     '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-level', '4.0'];
   // Tag what the pixels actually are after this plan ran. Anything unknown is
   // left unset so ffmpeg carries the input's own value rather than inventing one.
@@ -2715,7 +3191,8 @@ function buildEncodeArgs(filter, info, plan) {
 }
 
 // exec resolves even when ffmpeg errors out, so verify a real file came back.
-async function runEncode(ff, args, outName) {
+async function runEncode(ff, args, outName, track = false) {
+  trackEncodeProgress(track);
   try { await ff.deleteFile(outName); } catch(e) {}
   ffLog = [];
   let threw = null;
@@ -2726,15 +3203,282 @@ async function runEncode(ff, args, outName) {
     threw = e;
   }
   if (!threw) {
-    try { if ((await ff.fileSize(outName)) > 0) return { ok: true }; } catch(e) {}
+    try { if ((await ff.fileSize(outName)) > 0) { trackEncodeProgress(false); return { ok: true }; } } catch(e) {}
   }
+  trackEncodeProgress(false);
   // A plan that fails silently is worse than one that fails loudly: the next
   // plan down does less colour work, so the export still appears, just wrong.
   // ffmpeg names the rejected filter or option on its own line; that line is
   // usually the entire diagnosis, so keep it and show it.
   const log = ffLog.join('\n');
   const m = log.match(/^[^\n]*(?:Error|Invalid|Unrecognized|No such|not found|Unable to)[^\n]*/mi);
-  return { ok: false, reason: (m ? m[0] : threw ? String(threw.message || threw) : 'produced no output').trim() };
+  return { ok: false, reason: (m ? m[0] : threw ? describeError(threw) : 'produced no output').trim() };
+}
+
+function renderQualitySelect() {
+  const sel = document.getElementById('qualitySel');
+  if (!sel) return;
+  sel.innerHTML = Object.entries(EXPORT_QUALITY)
+    .map(([k, v]) => `<option value="${k}"${k === exportQuality ? ' selected' : ''}>${esc(v.label)}</option>`).join('');
+  const n = document.getElementById('qualityNote');
+  if (n) n.textContent = currentQuality().note;
+}
+
+// HDR source detection, cheaply. probeInput() is authoritative but needs
+// ffmpeg loaded and the file written into its filesystem, which is far too
+// heavy to run just to decide whether to show a checkbox. A VideoFrame taken
+// from the already-loaded <video> reports the colour space immediately, and it
+// was right about this footage in the capability probe. Only used to decide
+// whether to OFFER the option - the export itself re-checks properly.
+let hdrKeep = false;
+let _hdrQuick = null;
+
+function detectHdrQuick() {
+  if (typeof VideoFrame === 'undefined') return null;
+  const v = document.getElementById('vidEl');
+  if (!v || !v.videoWidth) return null;
+  let f = null;
+  try {
+    f = new VideoFrame(v, { timestamp: 0 });
+    const t = (f.colorSpace && f.colorSpace.transfer) || null;
+    return (t === 'hlg' || t === 'pq') ? { transfer: t } : null;
+  } catch(e) { return null; }
+  finally { try { f && f.close(); } catch(e) {} }
+}
+
+async function refreshHdrOption() {
+  const row = document.getElementById('hdrOptRow');
+  if (!row) return;
+  _hdrQuick = detectHdrQuick();
+  if (!_hdrQuick) { row.style.display = 'none'; hdrKeep = false; return; }
+  row.style.display = 'flex';
+  renderHdrNote();
+}
+
+// The note has to state the actual trade, because the quality setting now
+// changes what "keep HDR" means rather than just how long it takes:
+//
+//   Fast / Balanced -> whatever the GPU can encode. Seconds. On hardware with
+//                      no 10-bit HEVC encoder that means 8-bit HDR, which is
+//                      real HDR that platforms ingest as HDR, but can band in
+//                      smooth gradients.
+//   Best            -> 10-bit, in software if necessary. Minutes.
+//
+// Leaving the user to discover that by timing two exports would be the sort of
+// hidden trade this whole path has been trying to stop making for them.
+function renderHdrNote() {
+  const note = document.getElementById('hdrOptNote');
+  if (!note || !_hdrQuick) return;
+  const kind = _hdrQuick.transfer === 'pq' ? 'HDR (PQ)' : 'HDR (HLG)';
+  const best = exportQuality === 'best';
+  note.innerHTML =
+    `This clip is ${esc(kind)}. Off, it is tone mapped to SDR — fast, and correct everywhere. ` +
+    `On, the HDR is kept, which is what Instagram ingests as HDR.<br>` +
+    (best
+      ? `<strong>At "Best":</strong> full 10-bit, using the software encoder if this device has no 10-bit hardware encoder. Slow — minutes, not seconds.`
+      : `<strong>At "${esc(currentQuality().label)}":</strong> whatever this device's GPU can encode. Fast. If it has no 10-bit HEVC encoder the result is 8-bit HDR — still HDR, but smooth gradients can band. Choose "Best" for full 10-bit.`);
+}
+
+function onTestExportToggle(on) {
+  testExportSeconds = on ? TEST_EXPORT_SECONDS : 0;
+}
+
+function onHdrKeepToggle(on) {
+  hdrKeep = !!on;
+  renderHdrNote();
+}
+
+// Decide, at export time, how to keep HDR. Ordered best-first; every option is
+// verified against this machine before it is chosen, because a route that
+// half-works produces a broken file rather than an error.
+async function chooseHdrRoute(ff, info, onStep) {
+  const tried = [];
+  const step = m => { if (onStep) onStep(m); };
+  // EVERY probe here is bounded. Each one talks to a hardware codec or a wasm
+  // worker, and any of them can simply stop answering - which is what produced
+  // a two-minute "checking what this device can encode" with no way out. A
+  // timeout is recorded like any other rejection so the ladder keeps moving.
+  //
+  // The result is also cached per engine: these answers are properties of the
+  // machine and the core, not of the clip, so paying for them on every single
+  // export is waste the user experiences as a stall.
+  // The chosen route now depends on the quality setting, so that has to be part
+  // of the key - otherwise switching to Best would silently reuse the fast route.
+  const cacheKey = 'cc_hdr_route_' + ffEngineId() + '_' + exportQuality;
+  try {
+    const hit = JSON.parse(sessionStorage.getItem(cacheKey) || 'null');
+    if (hit && hit.v === 2) {
+      if (hit.route) { console.log('HDR route (cached):', hit.route.label); return hit.route; }
+      tried.push(...(hit.tried || []));
+      return { id: null, tried };
+    }
+  } catch(e) {}
+
+  const remember = (route) => {
+    try { sessionStorage.setItem(cacheKey, JSON.stringify({ v: 2, route, tried })); } catch(e) {}
+    return route || { id: null, tried };
+  };
+
+  // ORDER, and the judgement in it.
+  //
+  // Hardware encoding is on the order of a hundred times faster than x265 in
+  // WebAssembly, because x265's speed lives in hand-written assembly that wasm
+  // does not have. That is not a tuning gap that can be closed; it is the
+  // difference between seconds and minutes.
+  //
+  // An earlier version ranked software 10-bit ABOVE hardware 8-bit, on the
+  // grounds that 10 bits is better. It is - but it silently spent minutes of
+  // the user's time to buy a difference that is close to invisible on camera
+  // footage, whose sensor noise dithers the gradients that 8-bit would
+  // otherwise band, and which the destination platform re-encodes anyway. That
+  // was a quality-for-time trade made on the user's behalf without asking.
+  //
+  // So the export-quality control now decides it, because it is the same
+  // question the user already answered there:
+  //
+  //   Fast / Balanced -> take any hardware encoder that produces an ingestable
+  //                      file, whatever its depth. Seconds.
+  //   Best            -> insist on 10 bits, in software if the GPU cannot, and
+  //                      accept the wait that comes with it.
+  //
+  // Hardware 10-bit, where it exists, wins under every setting: same output as
+  // the software path, without the wait.
+  const wantMaxQuality = exportQuality === 'best';
+  // FASTEST ROUTE FIRST. If the GPU can composite in extended range and there is
+  // a hardware encoder, nothing has to decode in WebAssembly at all - which is
+  // 75-80% of every export on the ffmpeg routes below.
+  let hw = null;
+  step('Checking hardware encoders...');
+  try {
+    const probe = await withTimeout(probeHdrExport(), 15000, 'checking hardware encoders');
+    const usable = hdrExportUsable(probe);
+    if (usable.ok && usable.ingestable) hw = usable;
+    else tried.push(usable.ok
+      ? 'the only hardware encoder here writes ' + usable.plan.ext + ', which social platforms do not ingest as HDR'
+      : 'no hardware route: ' + usable.why);
+  } catch(e) { tried.push('hardware probe: ' + describeError(e)); }
+
+  // THE GPU ROUTE IS NOT AVAILABLE FOR HDR, and it is worth recording why.
+  //
+  // importExternalTexture accepts only srgb and display-p3 - both SDR - so the
+  // browser tone maps an HLG source on the way in and the shader never sees the
+  // HDR range. Measured on a real clip: the source's brightest 1% sat at code
+  // 226 and its maximum at 230, while everything arriving at the GPU was capped
+  // at 179 - which is SDR white exactly. A hard clamp, not a rounding error.
+  //
+  // The output is then HLG-tagged SDR, which is WORSE than an honest SDR
+  // export: the tag tells players to expand a signal that has nothing left to
+  // expand, so it renders bright and flat. The route is therefore not offered
+  // for HDR at all. It is excellent for the SDR export, where tone-mapped SDR
+  // is exactly what is wanted, and that is where it now runs.
+  tried.push('GPU compositing cannot preserve HDR: external textures import as SDR only');
+
+  if (hw && hw.depth === 10) {
+    return remember({ id: 'webcodecs', depth: 10, codec: hw.codec, fast: true,
+                      label: '10-bit HEVC (hardware)', tried });
+  }
+  // Fast and Balanced stop here if the hardware can produce anything usable:
+  // an 8-bit hardware encode in seconds beats a 10-bit software one in minutes
+  // for everything this app is for.
+  if (hw && !wantMaxQuality) {
+    return remember({ id: 'webcodecs', depth: hw.depth, codec: hw.codec, fast: true,
+                      eightBit: hw.eightBit, label: hw.depth + '-bit HEVC (hardware)', tried });
+  }
+
+  step('Checking software encoders...');
+  try {
+    ffLog = [];
+    await withTimeout(ff.exec(['-hide_banner', '-encoders']), 20000, 'listing ffmpeg encoders');
+    if (/\blibx265\b/.test(ffLog.join('\n'))) {
+      step('Testing 10-bit encoding...');
+      const ten = await withTimeout(probeX265TenBit(ff), 30000, 'testing 10-bit encoding');
+      if (ten.ok) return remember({ id: 'x265', depth: 10, fast: false,
+                                    label: '10-bit HEVC (software, libx265)', tried });
+      tried.push('libx265 present but not 10-bit capable: ' + (ten.reason || 'unknown'));
+    } else tried.push('this ffmpeg build has no libx265');
+  } catch(e) { tried.push('software encoder probe: ' + describeError(e)); }
+
+  if (hw) {
+    return remember({ id: 'webcodecs', depth: hw.depth, codec: hw.codec, fast: true,
+                      eightBit: hw.eightBit, label: '8-bit HEVC (hardware)', tried });
+  }
+  return remember(null);
+}
+
+// WHY MULTI-THREADING IS OR IS NOT AVAILABLE.
+//
+// Multi-threaded ffmpeg is the only remaining lever on HDR export speed, and it
+// needs SharedArrayBuffer, which needs cross-origin isolation, which needs a
+// service worker, which needs the page to be served over http(s) - NOT opened
+// as a file. Opening index.html by double-clicking gives location.protocol
+// "file:", where service workers are disabled outright, so isolation can never
+// be granted no matter what else is configured.
+//
+// Each link is reported separately because "SharedArrayBuffer is not defined"
+// says nothing about which one is missing.
+function isolationReport() {
+  const proto = (typeof location !== 'undefined' && location.protocol) || '?';
+  const host = (typeof location !== 'undefined' && location.hostname) || '';
+  const isFile = proto === 'file:';
+  const secure = proto === 'https:' || host === 'localhost' || host === '127.0.0.1';
+  const swSupported = typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
+  const swControlling = swSupported && !!navigator.serviceWorker.controller;
+  const isolated = !!self.crossOriginIsolated;
+  const sab = typeof SharedArrayBuffer !== 'undefined';
+  let blocker = null;
+  if (isFile) blocker = 'The page is opened as a file (file://), where service workers are disabled. ' +
+      'Serve the folder over http instead — for example `npx serve` or `python -m http.server` — and open it via localhost.';
+  else if (!secure) blocker = 'The page is not on https or localhost, so a service worker cannot register.';
+  else if (!swSupported) blocker = 'This browser has no service worker support.';
+  else if (!swControlling) blocker = 'The service worker has not taken control yet — reload the page once.';
+  else if (!isolated) blocker = 'The service worker is active but the page is not cross-origin isolated; a reload usually fixes it.';
+  else if (!sab) blocker = 'Isolated, but SharedArrayBuffer is still missing — unusual; check browser flags.';
+  return { proto, isFile, secure, swSupported, swControlling, isolated, sab, ok: isolated && sab, blocker };
+}
+
+// Is this ffmpeg core able to use more than one core? x265 scales close to
+// linearly across threads, so a single-threaded core is the single biggest
+// reason a slow preset takes minutes here. Reported rather than forced: the
+// multi-threaded core needs cross-origin isolation and a different download,
+// which is a decision for the user, not a surprise mid-export.
+function ffIsMultiThread() {
+  const id = (ffmpegInstance && ffmpegInstance.engineId) || ffEngineId();
+  return /mt/.test(String(id));
+}
+function ffCanMultiThread() {
+  return !!(self.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined');
+}
+
+// Hand a finished export to the download UI. Shared by both paths so the HDR
+// export cannot drift away from the SDR one in how it presents results.
+function restoreTestDuration() {
+  if (_vDurBeforeTest != null) { vDur = _vDurBeforeTest; _vDurBeforeTest = null; }
+}
+
+function finishBurn(data, outName, meta = {}) {
+  restoreTestDuration();
+  endBurnClock();
+  const blob = new Blob([data], { type: meta.hdr && /\.webm$/.test(outName) ? 'video/webm' : 'video/mp4' });
+  const url = URL.createObjectURL(blob);
+  setBurnProg('Done!', 100);
+  const fill = document.getElementById('burnFill');
+  if (fill) fill.classList.add('done');
+  document.getElementById('burnProgress').style.display = 'none';
+  document.getElementById('burnDone').style.display = 'block';
+  const dlBtn = document.getElementById('dlBtn');
+  dlBtn.onclick = () => { const a = document.createElement('a'); a.href = url; a.download = outName; a.click(); };
+  document.getElementById('dlFileName').textContent = outName;
+  if (meta.hdr) {
+    showToast(meta.note || 'HDR kept');
+    // Same diagnostics panel the SDR path uses, so "what did it actually do"
+    // has one answer in one place.
+    showColorReport(meta.info, meta.outInfo, {
+      name: 'HDR passthrough', note: meta.note || '',
+    }, (meta.route && meta.route.tried || []).map(t => ({ name: 'rejected', reason: t }))
+       .concat((meta.timing || '').split('\n').slice(1).filter(Boolean).map(l => ({ name: 'timing', reason: l.trim() }))));
+  }
+  const burnBtn = document.getElementById('burnBtn');
+  if (burnBtn) burnBtn.disabled = false;
 }
 
 async function startBurn() {
@@ -2745,8 +3489,16 @@ async function startBurn() {
   document.getElementById('burnProgress').style.display = 'block';
   document.getElementById('burnDone').style.display = 'none';
   setBurnProg('Loading video processor...', 5);
+  beginBurnClock();
+  perfStart();
+  _vDurBeforeTest = null;
+  _hdrFailure = null;
+  _lumaCheck = null;
+  _routeNote = null;
   try {
     const ff = await loadFFmpeg();
+    console.log(`ffmpeg engine ${ffEngineId()} (${ffIsMultiThread() ? 'multi' : 'single'}-threaded), ` +
+                `using ${ffThreads()} thread(s) of ${navigator.hardwareConcurrency || '?'} cores`);
     setBurnProg('Loading your video...', 20);
     await ff.writeFile('input.mp4', vFile);
     setBurnProg('Loading font...', 28);
@@ -2782,8 +3534,91 @@ async function startBurn() {
       console.error('No font file mapped for:', selectedFont);
       showToast(`No font file for ${selectedFont} — burning with the default font`);
     }
+    // Trim first if this is a test run. A stream copy, so it costs almost
+    // nothing and everything downstream behaves exactly as it would normally.
+    if (testExportSeconds > 0) {
+      setBurnProg(`Trimming to the first ${testExportSeconds}s for a test...`, 30);
+      try {
+        await ff.exec(['-i', 'input.mp4', '-t', String(testExportSeconds), '-c', 'copy', 'trim.mp4']);
+        if ((await ff.fileSize('trim.mp4')) > 0) {
+          await ff.deleteFile('input.mp4');
+          const t = await ff.readFile('trim.mp4');
+          await ff.writeFile('input.mp4', t);
+          await ff.deleteFile('trim.mp4');
+          _vDurBeforeTest = vDur;
+          vDur = Math.min(vDur, testExportSeconds);
+          console.log('Test export: using the first', testExportSeconds, 'seconds');
+        }
+      } catch(e) { console.warn('Could not trim for the test export:', describeError(e)); }
+    }
     setBurnProg('Checking video format...', 34);
     const info = await probeInput(ff);
+
+    // HDR-preserving export, if the user asked for it and this source is
+    // actually HDR. Handled entirely separately from the tone-mapping ladder
+    // below: nothing here converts colour, so none of the plans apply.
+    if (hdrKeep && info.hdrTrc) {
+      setBurnProg('Checking what this device can encode...', 38);
+      const route = await chooseHdrRoute(ff, info, m => setBurnProg(m, 38));
+      if (route.id) {
+        const slow = route.id === 'x265';
+        // Set expectations before the wait, not after. Software x265 in wasm
+        // runs roughly in proportion to duration x pixels, and single-threaded
+        // it is slow enough that a two-minute clip at the top tier is a
+        // different order of magnitude from a ten-second one.
+        if (slow) {
+          const mins = (vDur || 0) / 60, threads = ffThreads();
+          if (mins > 0.5 && threads === 1 && exportQuality !== 'fast') {
+            showToast(`Heads up: ${Math.round(vDur)}s at "${currentQuality().label}" on one core will take a while. ` +
+                      `"Fast" or the multi-threaded engine would cut it substantially.`);
+          }
+        }
+        // x265 scales almost linearly with cores, and the single-threaded core
+        // is by far the biggest reason a software HDR export drags. Say so once,
+        // rather than letting the user conclude the feature is just slow.
+        console.log(`HDR encode: ${route.label}, ${ffThreads()} thread(s)` +
+                    ` of ${navigator.hardwareConcurrency || '?'} cores` +
+                    ` (${ffIsMultiThread() ? 'multi' : 'single'}-threaded core)`);
+        if (slow && !ffIsMultiThread()) {
+          const canMT = ffCanMultiThread();
+          console.warn('Software HDR encode on a single-threaded ffmpeg core.' +
+            (canMT ? ' The multi-threaded engine in Settings would be several times faster.'
+                   : ' Multi-threading needs cross-origin isolation, which is not active here.'));
+          if (canMT) showToast('Tip: switch to the multi-threaded engine in Settings for a much faster HDR export');
+        }
+        setBurnProg(slow
+          ? 'Encoding HDR — software encoding, this takes a while...'
+          : 'Encoding HDR...', 45);
+        try {
+          const prog = p => { trackEncodeProgress(true); onBurnProgress(p); };
+          const res = route.id === 'webgpu'
+            ? await exportHdrViaWebGPU({ ff, info, encoderCodec: route.codec, fps: info.fps || 30, onProgress: prog })
+            : route.id === 'x265'
+            ? await exportHdrViaX265({ ff, info, fontLoaded, onProgress: prog })
+            : await exportHdrWithCaptions({ ff, info, codec: route.codec, depth: route.depth,
+                fps: info.fps || 30, onProgress: prog });
+          const hperf = perfReport();
+          finishBurn(res.data, res.outName, {
+            hdr: true, route, info, timing: hperf,
+            outInfo: res.outInfo || null,
+            note: 'HDR kept — ' + route.label +
+                  (route.eightBit ? '. 8-bit, so smooth gradients may band slightly.' : '.'),
+          });
+          return;
+        } catch(e) {
+          // Falling back is better than failing, but it must be said out loud:
+          // the user asked for HDR and is not getting it.
+          console.error('HDR export failed, falling back to tone mapping:', e);
+          _hdrFailure = { route: route.label, reason: describeError(e) };
+          showToast('HDR export failed — see the details below the export');
+        }
+      } else {
+        console.warn('No HDR route on this device:', route.tried);
+        _hdrFailure = { route: 'none available', reason: (route.tried || []).join('; ') || 'no reason reported' };
+        showToast('This device cannot keep HDR — see the details below the export');
+      }
+    }
+
     // Build and install the 3D LUT before the plan ladder runs, so the
     // reference plan has its file. Only for HDR sources, and only if this build
     // has lut3d at all - otherwise it is a couple of megabytes for nothing.
@@ -2807,11 +3642,110 @@ async function startBurn() {
     if (!filter) throw new Error('No captions to burn');
     const outName = getOutName() + '_captioned.mp4';
     const plans = conversionPlans(info, { ...ffFilterSet, lut3d: ffFilterSet.lut3d && lutWritten });
+
+    // FAST PATH: let ffmpeg do the colour and the GPU do the encoding.
+    //
+    // The tone mapping and the captions stay exactly where they are - the 3D
+    // LUT and drawtext are the reason this export looks right - and only the
+    // encode moves to hardware. That is the single change that separates a
+    // several-minute export from a several-second one, and it is what a native
+    // editor is doing when it finishes before you have let go of the mouse.
+    //
+    // Skipped on "Best", where the user has explicitly asked for the software
+    // encoder's quality and accepted the wait that comes with it.
+    if (exportQuality === 'best') {
+      _routeNote = 'Export quality is "Best", which always uses the software encoder. ' +
+                   'Balanced gives the same colour with a hardware encode; Fast is the GPU route.';
+    }
+    if (exportQuality !== 'best') {
+      try {
+        setBurnProg('Checking for a hardware encoder...', 44);
+        const hwCodec = await pickHardwareSdrCodec(vW, vH);
+        // FASTEST SDR: decode, composite and encode entirely on the GPU.
+        //
+        // WHICH TONE MAP, and therefore which speed. This route is fast because
+        // the BROWSER tone maps HDR to SDR when handing a frame to WebGPU - but
+        // that is a different curve from the 3D LUT. The browser drives its
+        // white to 235; the LUT holds diffuse white at 209 so speculars have
+        // somewhere to go. The LUT picture is more conservative and measurably
+        // more accurate in hue, the browser's is brighter and several times
+        // faster. That is a real trade, so the quality setting makes it rather
+        // than the code quietly preferring speed:
+        //
+        //   Fast     -> GPU everything, browser tone map
+        //   Balanced -> reference 3D LUT colour, hardware encode
+        //   Best     -> reference 3D LUT colour, software encode
+        // WHEN THE GPU ROUTE IS ACTUALLY CORRECT.
+        //
+        // Its only colour weakness is that the BROWSER tone maps HDR on import,
+        // and that curve is brighter and flatter than the 3D LUT - measured, and
+        // confirmed by eye on real footage.
+        //
+        // But that weakness exists ONLY for HDR sources. Give it an SDR source
+        // and no tone mapping happens at all: the frames pass through untouched
+        // and the route is exact as well as fast. So the gate is the SOURCE, not
+        // the quality setting:
+        //
+        //   SDR source  -> always the GPU route. Nothing to get wrong, ~6x faster.
+        //   HDR source  -> the 3D LUT, unless the user explicitly picks Fast and
+        //                  accepts the browser's tone map for the speed.
+        const gpuIsExact = !info.hdrTrc;
+        if (hwCodec && (gpuIsExact || exportQuality === 'fast')) {
+          try {
+            const gpu = await withTimeout(probeWebgpuHdr(), 15000, 'checking GPU compositing');
+            if (gpu.ok) {
+              console.log('Fast: fully GPU (decode, composite, encode) via', hwCodec);
+              setBurnProg('Burning captions (GPU)...', 46);
+              const res = await exportHdrViaWebGPU({
+                ff, info, encoderCodec: hwCodec, fps: info.fps || 30, mode: 'sdr',
+                onProgress: p => { trackEncodeProgress(true); onBurnProgress(p); },
+              });
+              const perf = perfReport();
+              showColorReport(info, res.outInfo, {
+                name: gpuIsExact ? 'GPU passthrough + GPU encode' : 'GPU tone map + GPU encode',
+                note: gpuIsExact
+                  ? 'the source is already SDR, so nothing was converted — the GPU composited and encoded it'
+                  : 'the browser tone mapped HDR to SDR and the GPU encoded it — brighter than the reference LUT',
+              }, perf.split('\n').slice(1).map(l => ({ name: 'timing', reason: l.trim() })));
+              finishBurn(res.data, res.outName, {});
+              return;
+            }
+            _routeNote = 'The fully-GPU route was skipped: ' + (gpu.why || 'unavailable') +
+                         '. ffmpeg did the colour work instead, which is the slow part.';
+            console.log('No GPU compositing; using ffmpeg for colour instead:', gpu.why);
+          } catch(e) {
+            _routeNote = 'The fully-GPU route failed and ffmpeg did the colour work instead: ' + describeError(e);
+            console.warn('GPU export failed, falling back to ffmpeg colour:', describeError(e));
+          }
+        }
+        if (hwCodec) {
+          console.log('Fast export: ffmpeg colour + hardware encode via', hwCodec);
+          setBurnProg('Burning captions (hardware encode)...', 46);
+          const res = await exportSdrViaHardware({
+            ff, info, plans, drawFilter: filter, codec: hwCodec, fps: info.fps || 30,
+            onProgress: p => { trackEncodeProgress(true); onBurnProgress(p); },
+          });
+          const perf = perfReport();
+          showColorReport(info, res.outInfo, {
+            name: res.plan.name + ' + hardware encode',
+            note: (res.plan.note || '') + ' — encoded by the GPU (' + res.codec + ')',
+          }, perf.split('\n').slice(1).map(l => ({ name: 'timing', reason: l.trim() })));
+          finishBurn(res.data, res.outName, {});
+          return;
+        }
+        _routeNote = (_routeNote ? _routeNote + ' ' : '') +
+          'No hardware encoder was available, so the software encoder ran — this is the slowest path.';
+        console.log('No hardware encoder available; using the software encoder.');
+      } catch(e) {
+        console.error('Hardware export failed, falling back to software:', e);
+        showToast('Hardware encode failed (' + describeError(e) + ') — using the slower software encoder');
+      }
+    }
     let ok = false, used = null;
     const attempts = [];
     for (const plan of plans) {
       setBurnProg(`Burning captions...${plan.pre ? ' (' + plan.name + ')' : ''}`, 42);
-      const r = await runEncode(ff, buildEncodeArgs(filter, info, plan), outName);
+      const r = await runEncode(ff, buildEncodeArgs(filter, info, plan), outName, true);
       if (r.ok) { ok = true; used = plan; break; }
       attempts.push({ name: plan.name, reason: r.reason });
       console.warn('Encode plan failed, trying next:', plan.name, '—', r.reason);
@@ -2849,13 +3783,16 @@ async function startBurn() {
     showToast('Captions burned!');
   } catch(e) {
     console.error('Burn error:', e);
-    showToast('Burn failed: ' + e.message);
+    console.error('Burn failed:', e);
+    showToast('Burn failed: ' + describeError(e));
     document.getElementById('burnProgress').style.display = 'none';
     burnBtn.disabled = false;
   }
 }
 
 function setBurnProg(title, pct) {
+  // A new phase invalidates any estimate carried over from the previous one.
+  _burnRatio = 0;
   document.getElementById('burnTitle').textContent = title;
   document.getElementById('burnFill').style.width = pct + '%';
 }
@@ -2899,11 +3836,18 @@ function getCapWords(cap) {
   return displayWords.map((t, i) => ({ text: t, start: cap.start + (i / n) * dur, end: cap.start + ((i + 1) / n) * dur }));
 }
 
-async function buildDrawtextFilter(fontLoaded) {
+// colorFn, when given, rewrites every caption colour so it lands correctly in
+// an HDR frame - see makeHdrColorMapper. Omitted for the SDR burn, where the
+// colours mean exactly what they say.
+async function buildDrawtextFilter(fontLoaded, colorFn) {
   if (!captions.length) return null;
+  const C = colorFn || hexToFFColor;
   const fs = Math.round(fontSize * (vH / 800));
-  const fc = hexToFFColor(hlColor), oc = hexToFFColor(olColor);
-  const ptc = hexToFFColor(pillTextColor), pbc = hexToFFColor(pillBgColor);
+  const fc = C(hlColor), oc = C(olColor);
+  const ptc = C(pillTextColor), pbc = C(pillBgColor);
+  // Literal black and white have to go through the mapper too, or the outlines
+  // and the unspoken words would be the only things left at HDR peak.
+  const BLACK = C('#000000'), WHITE = C('#FFFFFF');
   const fontRef = fontLoaded ? 'fontfile=font.ttf:' : '';
   const raw = coordsToPx(coordX, coordY);
   const xPx = Math.round(raw.px), yPx = Math.round(raw.py);
@@ -2953,12 +3897,12 @@ async function buildDrawtextFilter(fontLoaded) {
       // Skipped entirely with the outline off — a black pass under the fill
       // would fringe the antialiased edges.
       if (borderw > 0) placed.forEach(({ it, wx, cy }) => {
-        parts.push(`drawtext=${fontRef}text='${escDrawtext(it.text)}':${geom(wx, cy, it)}:fontcolor=0x000000FF:borderw=${borderw}:bordercolor=0x000000FF:enable='${capWindow}'`);
+        parts.push(`drawtext=${fontRef}text='${escDrawtext(it.text)}':${geom(wx, cy, it)}:fontcolor=${BLACK}:borderw=${borderw}:bordercolor=${BLACK}:enable='${capWindow}'`);
       });
       // Pass 2 — the fills, white until the word is spoken, highlight during.
       placed.forEach(({ it, wx, cy }) => {
         const base = `text='${escDrawtext(it.text)}':${geom(wx, cy, it)}:borderw=0`;
-        parts.push(`drawtext=${fontRef}${base}:fontcolor=0xFFFFFFFF:enable='between(t,${cap.start.toFixed(3)},${it.start.toFixed(3)})+between(t,${it.end.toFixed(3)},${cap.end.toFixed(3)})'`);
+        parts.push(`drawtext=${fontRef}${base}:fontcolor=${WHITE}:enable='between(t,${cap.start.toFixed(3)},${it.start.toFixed(3)})+between(t,${it.end.toFixed(3)},${cap.end.toFixed(3)})'`);
         parts.push(`drawtext=${fontRef}${base}:fontcolor=${fc}:enable='between(t,${it.start.toFixed(3)},${it.end.toFixed(3)})'`);
       });
     });
@@ -2969,8 +3913,8 @@ async function buildDrawtextFilter(fontLoaded) {
   switch(captionStyle) {
     case 'white':   fontcolor=ptc; bordercolor='0x00000000'; borderw=0; box=1; boxcolor=pbc; break;
     case 'outline': fontcolor=fc; bordercolor=oc; borderw=Math.round(outlineWidth(fs)*1.2); box=0; boxcolor='0x00000000'; break;
-    case 'caps':    fontcolor='0xFFFFFFFF'; bordercolor='0x000000FF'; borderw=outlineWidth(fs); box=0; boxcolor='0x00000000'; break;
-    default:        fontcolor=fc; bordercolor='0x000000FF'; borderw=outlineWidth(fs); box=0; boxcolor='0x00000000'; break;
+    case 'caps':    fontcolor=WHITE; bordercolor=BLACK; borderw=outlineWidth(fs); box=0; boxcolor='0x00000000'; break;
+    default:        fontcolor=fc; bordercolor=BLACK; borderw=outlineWidth(fs); box=0; boxcolor='0x00000000'; break;
   }
   const parts = [];
   captions.forEach(cap => {
@@ -3061,23 +4005,1076 @@ function renderFFSettings() {
 const HDR_CODEC_FAMILIES = [
   {
     label: 'HEVC Main10', licence: 'patent-licensed', container: 'MP4',
+    depth: 10,
     delivery: 'accepted by Instagram, TikTok and YouTube as HDR',
     candidates: [].concat(...['L123', 'L120', 'L153', 'L150', 'L156', 'L93']
       .map(l => [`hvc1.2.4.${l}.B0`, `hev1.2.4.${l}.B0`])),
   },
   {
+    label: 'HEVC Main, 8-bit HLG', licence: 'patent-licensed', container: 'MP4',
+    depth: 8,
+    delivery: 'ingested as HDR by Instagram; 8-bit, so gradients can band',
+    candidates: [].concat(...['L123', 'L120', 'L153', 'L150', 'L156', 'L93']
+      .map(l => [`hvc1.1.6.${l}.B0`, `hev1.1.6.${l}.B0`])),
+  },
+  {
     label: 'AV1 Main, 10-bit', licence: 'royalty-free', container: 'MP4',
+    depth: 10,
     delivery: 'YouTube yes; Instagram ingest prefers HEVC',
     candidates: ['av01.0.08M.10', 'av01.0.09M.10', 'av01.0.05M.10', 'av01.0.04M.10', 'av01.0.12M.10'],
   },
   {
     label: 'VP9 Profile 2, 10-bit', licence: 'royalty-free', container: 'WebM',
+    depth: 10,
     delivery: 'YouTube yes; Instagram does not ingest WebM',
     candidates: ['vp09.02.10.10', 'vp09.02.40.10', 'vp09.02.41.10', 'vp09.02.31.10', 'vp09.02.50.10'],
   },
 ];
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// HDR EXPORT: the pipeline.
+//
+//   ffmpeg decodes a slice to raw 10-bit planes
+//     -> captions are blended into those planes in place
+//     -> each frame is wrapped in a VideoFrame we construct
+//     -> the hardware encoder compresses it
+//     -> ffmpeg remuxes the result with the original audio and the HDR tags
+//
+// The video is never converted. Outside the caption box every sample reaches
+// the encoder exactly as it was decoded, so this is a genuine HDR passthrough
+// rather than a very good conversion.
+//
+// Chosen only when the probe says an ingest-compatible codec exists. A VP9/WebM
+// result is real HDR but Instagram will not take it, so the caller decides
+// whether to offer this at all - see hdrExportUsable().
+function hdrExportUsable(probe) {
+  if (!probe || !probe.possible) return { ok: false, why: 'this browser cannot keep HDR' };
+  const route = (probe.routes || []).find(r => r.id === 'build');
+  if (!route) return { ok: false, why: 'no route that can draw captions in HDR' };
+  const plan = hdrOutputPlan(route.codec);
+  if (!plan) return { ok: false, why: 'no container for ' + route.codec };
+  // MP4 is the gate, not "some 10-bit encoder exists". Shipping a WebM file as
+  // "HDR export" produces something Instagram silently rejects or flattens,
+  // which is worse than the SDR export because it looks like it worked.
+  return { ok: true, codec: route.codec, plan, depth: route.depth || 10,
+           ingestable: plan.ext === 'mp4',
+           // Worth surfacing: real HDR that Instagram takes, but 8-bit, so
+           // smooth gradients can band where a 10-bit export would not.
+           eightBit: (route.depth || 10) === 8 };
+}
+
+async function exportHdrWithCaptions({ ff, info, codec, fps, depth = 10, onProgress }) {
+  const plan = hdrOutputPlan(codec);
+  if (!plan) throw new Error('No raw container for ' + codec);
+  const w = vW - (vW % 2), h = vH - (vH % 2);
+  const frameBytes = hdrFrameBytes(w, h, depth);
+  const totalFrames = Math.max(1, Math.round(vDur * fps));
+  const budget = isMobileBrowser() ? HDR_CHUNK_BUDGET_MOBILE : HDR_CHUNK_BUDGET_DESKTOP;
+  const slices = planDecodeChunks(totalFrames, frameBytes, budget);
+  const trc = info.hdrTrc === 'smpte2084' ? 'pq' : 'hlg';
+  const colorSpace = { primaries: 'bt2020', transfer: trc, matrix: 'bt2020-ncl', fullRange: false };
+
+  const encoded = [];
+  let encoderError = null;
+  const encoder = new VideoEncoder({
+    output: chunk => {
+      const b = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(b);
+      encoded.push(b);
+    },
+    error: e => { encoderError = e; },
+  });
+  const cfg = {
+    codec, width: w, height: h, framerate: fps,
+    // ~0.1 bits per pixel per frame is a reasonable social-media target and
+    // keeps a 60s 1080p clip in the tens of megabytes.
+    bitrate: Math.round(w * h * fps * 0.1),
+    latencyMode: 'quality',
+  };
+  // HEVC and AV1 are handed back as raw streams, so ask for the byte format
+  // that needs no container fix-ups.
+  if (plan.raw === 'annexb') cfg.hevc = { format: 'annexb' };
+  encoder.configure(cfg);
+
+  // Same reasoning as the SDR path: split on keyframes first so no frame is
+  // decoded only to be thrown away reaching the start of a slice.
+  const segs = await perfTime('segment', () => segmentSource(ff, segmentSeconds(w, h, depth, fps)));
+  const units = segs ? segs.map(name => ({ name })) : slices.map(sl => ({ slice: sl }));
+  let done = 0, idxBase = 0;
+  try {
+    for (const unit of units) {
+      if (encoderError) throw encoderError;
+      const raw = unit.name
+        ? await perfTime('decode', () => decodeSegmentToRaw(ff, unit.name, w, h, depth, null, fps, !!info.variableRate))
+        : await perfTime('decode', () => decodeSliceToRaw(ff, unit.slice, fps, w, h, depth), unit.slice.count);
+      const got = unit.name
+        ? Math.floor(raw.length / frameBytes)
+        : Math.min(unit.slice.count, Math.floor(raw.length / frameBytes));
+      perfAdd('decode', 0, got);
+      for (let i = 0; i < got; i++) {
+        const idx = unit.name ? idxBase + i : unit.slice.start + i;
+        const tSec = idx / fps;
+        const planes = framePlanesFromRaw(raw, i, w, h, depth);
+        const tc = performance.now();
+        const cap = captionRasterAt(tSec);
+        if (cap) blendCaptionIntoHdrPlanes(planes, cap, info.hdrTrc);
+        perfAdd('captions', performance.now() - tc, 1);
+        const frame = new VideoFrame(planesToI420P10(planes), {
+          format: depth > 8 ? 'I420P10' : 'I420', codedWidth: w, codedHeight: h,
+          timestamp: Math.round(idx * 1e6 / fps),
+          duration: Math.round(1e6 / fps),
+          colorSpace,
+        });
+        // A keyframe every two seconds keeps the file seekable without costing
+        // much, and platforms re-transcode anyway.
+        const te = performance.now();
+        encoder.encode(frame, { keyFrame: idx % Math.round(fps * 2) === 0 });
+        frame.close();
+        // Backpressure: without this the whole slice queues up in the encoder
+        // and peak memory becomes the slice size all over again.
+        while (encoder.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 0));
+        perfAdd('encode', performance.now() - te, 1);
+        done++;
+      }
+      idxBase += got;
+      if (onProgress) onProgress(done / totalFrames);
+    }
+    await perfTime('encode', () => encoder.flush());
+  } finally {
+    try { if (encoder.state !== 'closed') encoder.close(); } catch(e) {}
+    if (segs) for (const n of segs) { try { await ff.deleteFile(n); } catch(e) {} }
+  }
+  if (encoderError) throw encoderError;
+  if (!encoded.length) throw new Error('The encoder returned no data');
+
+  // Wrap in the minimal raw container, then let ffmpeg mux and tag.
+  const stream = plan.raw === 'ivf'
+    ? buildIvf(encoded, { width: w, height: h, fpsNum: Math.round(fps), fpsDen: 1, fourcc: IVF_FOURCC.vp09 })
+    : concatChunks(encoded);
+  await ff.writeFile(plan.file, stream);
+  const outName = getOutName() + '_captioned_hdr.' + plan.ext;
+  const muxFps2 = (vDur > 0 && done > 1) ? (done / vDur) : fps;
+  let r = await perfTime('mux', () => runEncode(ff, hdrRemuxArgs(plan, info, muxFps2, !!info.hasAudio), outName));
+  if (!r.ok) {
+    // A build without the metadata bitstream filter must still produce a file;
+    // it will be untagged, which the verification below will catch and say so.
+    console.warn('Mux with colour tagging failed, retrying without it:', r.reason);
+    r = await perfTime('mux', () => runEncode(ff, hdrRemuxArgs(plan, info, muxFps2, !!info.hasAudio, true), outName));
+  }
+  if (!r.ok) throw new Error('Muxing the HDR stream failed: ' + r.reason);
+  const data = await ff.readFile(outName);
+  // Read back what we actually produced. Without this the diagnostics said
+  // "Export: unknown", which is the one thing that must never be unknown here:
+  // an HDR file that lost its BT.2020/HLG tags still plays, still looks fine
+  // locally, and is silently ingested as SDR. Checking costs one probe.
+  const outInfo = await perfTime('verify', () => probeInput(ff, outName));
+  const tagged = outInfo && /bt2020/.test(String(outInfo.primaries) + String(outInfo.matrix));
+  if (!tagged) {
+    console.warn('HDR export is not tagged BT.2020 — players will treat it as SDR.', outInfo);
+    showToast('Warning: the export could not be tagged as HDR, so it will look washed out. Use the SDR export instead.');
+  }
+  try { await ff.deleteFile(plan.file); } catch(e) {}
+  try { await ff.deleteFile(outName); } catch(e) {}
+  return { data, outName, outInfo, codec, container: plan.ext, frames: done };
+}
+
+// SEEK WASTE, and why the source gets split first.
+//
+// Decoding a slice with `-ss N` looks free but is not. -ss seeks to the
+// KEYFRAME BEFORE N and then decodes forward, throwing away every frame until
+// it reaches N. Phone footage keyframes every 1-2 seconds, so with ~100-frame
+// slices each one silently re-decodes an average of half a keyframe interval
+// before producing anything useful - measured against these clips, roughly a
+// fifth to a third of all decoding was discarded work.
+//
+// Splitting the source into segments first removes it entirely. The split is a
+// STREAM COPY - no decoding, one fast pass - and the segment muxer cuts on
+// keyframes by definition, so each segment then decodes from its own first
+// frame with nothing wasted. It also makes each ffmpeg run longer and fewer,
+// which is what a multi-threaded core wants.
+async function segmentSource(ff, seconds) {
+  const names = [];
+  ffLog = [];
+  try {
+    await ff.exec(['-i', 'input.mp4', '-map', '0:v:0', '-c', 'copy',
+      '-f', 'segment', '-segment_time', String(Math.max(1, Math.round(seconds))),
+      '-reset_timestamps', '1', 'seg%03d.mp4']);
+  } catch(e) {
+    console.warn('Segmenting failed, falling back to seeking:', describeError(e));
+    return null;
+  }
+  // The muxer does not report what it wrote, so ask for each in turn until one
+  // is missing. Capped so a broken build cannot spin here.
+  for (let i = 0; i < 999; i++) {
+    const n = 'seg' + String(i).padStart(3, '0') + '.mp4';
+    let size = 0;
+    try { size = await ff.fileSize(n); } catch(e) { size = 0; }
+    if (!size) break;
+    names.push(n);
+  }
+  if (!names.length) { console.warn('Segmenting produced no files, falling back to seeking.'); return null; }
+  console.log(`Split the source into ${names.length} keyframe-aligned segments.`);
+  return names;
+}
+
+// Decode one whole segment - no seeking, so nothing is decoded and discarded.
+async function decodeSegmentToRaw(ff, name, w, h, depth, vfOverride, fps, forceCfr) {
+  const pixFmt = depth > 8 ? 'yuv420p10le' : 'yuv420p';
+  const out = 'seg.raw';
+  try { await ff.deleteFile(out); } catch(e) {}
+  ffLog = [];
+  const t0 = performance.now();
+  const vf = vfOverride ? `${vfOverride},format=${pixFmt}`
+           : ((w === vW && h === vH) ? `format=${pixFmt}` : `format=${pixFmt},scale=${w}:${h}`);
+  // -r forces a constant frame rate by duplicating or dropping frames, which a
+  // variable-rate source needs before its frames can be spaced evenly.
+  //
+  // But it is applied ONLY when the source is actually variable. Each segment is
+  // a separate ffmpeg run, so -r restarts its frame-timing accumulator at every
+  // segment boundary - and on an already-constant source that buys nothing while
+  // risking a duplicated or dropped frame at each join. Which is exactly what
+  // "you can see the stitching, at times" describes: a hitch at every boundary,
+  // periodically, rather than continuous judder.
+  const cfr = forceCfr ? ['-r', String(fps)] : [];
+  await ff.exec([...ffThreadArgs(), '-i', name, '-vf', vf, ...cfr,
+                 '-f', 'rawvideo', '-pix_fmt', pixFmt, out]);
+  perfAdd('  ffmpeg decode', performance.now() - t0);
+  const t1 = performance.now();
+  const raw = await ff.readFile(out);
+  perfAdd('  read raw', performance.now() - t1);
+  try { await ff.deleteFile(out); } catch(e) {}
+  return raw;
+}
+
+// How long a segment can be before its decoded frames exceed the memory budget.
+function segmentSeconds(w, h, depth, fps) {
+  const budget = isMobileBrowser() ? HDR_CHUNK_BUDGET_MOBILE : HDR_CHUNK_BUDGET_DESKTOP;
+  return Math.max(1, Math.floor(budget / (hdrFrameBytes(w, h, depth) * fps)));
+}
+
+// One slice of frames as raw yuv420p10le.
+//
+// -ss goes BEFORE -i so ffmpeg seeks rather than decoding and discarding
+// everything up to the slice, which for a 60-second clip is the difference
+// between a usable export and a hopeless one. format=yuv420p10le is a no-op on
+// a 10-bit source and guarantees the layout on anything else.
+async function decodeSliceToRaw(ff, slice, fps, w, h, depth = 10, vfOverride = null) {
+  const name = 'slice.raw';
+  const _t0 = performance.now();
+  // At 8 bit the source has to come DOWN from 10, and that is where banding is
+  // born. swscale dithers by default on a depth reduction, which together with
+  // the sensor noise in phone footage keeps it mild - but it is the reason the
+  // 8-bit route is ranked below every 10-bit one.
+  const pixFmt = depth > 8 ? 'yuv420p10le' : 'yuv420p';
+  try { await ff.deleteFile(name); } catch(e) {}
+  ffLog = [];
+  await ff.exec([
+    ...ffThreadArgs(),
+    '-ss', (slice.start / fps).toFixed(6),
+    '-i', 'input.mp4',
+    '-frames:v', String(slice.count),
+    // scale only when the size actually differs; on a matching source it is pure
+    // cost, and this runs for every slice of every frame.
+    '-vf', vfOverride
+      ? `${vfOverride},format=${pixFmt}`
+      : ((w === vW && h === vH) ? `format=${pixFmt}` : `format=${pixFmt},scale=${w}:${h}`),
+    '-f', 'rawvideo', '-pix_fmt', pixFmt,
+    name,
+  ]);
+  perfAdd('  ffmpeg decode', performance.now() - _t0);
+  // Reading the slice back is a straight copy of every decoded byte out of the
+  // wasm heap - about 3 MB a frame at 8-bit 1080p, so a hundred frames is a
+  // third of a gigabyte moved per slice. Timed separately because if THIS is
+  // the cost, the answer is fewer/larger slices; if the decode is the cost, the
+  // answer is threads.
+  const _t1 = performance.now();
+  const raw = await ff.readFile(name);
+  perfAdd('  read raw', performance.now() - _t1);
+  try { await ff.deleteFile(name); } catch(e) {}
+  if (!raw || !raw.length) throw new Error('ffmpeg returned no frames for slice at ' + (slice.start / fps).toFixed(2) + 's');
+  return raw;
+}
+
+// ---------------------------------------------------------------------------
+// FAST SDR EXPORT: ffmpeg does the colour, the GPU does the encoding.
+//
+// Why this exists. A CapCut export on a machine with no 10-bit HEVC encoder
+// reports "Color space: Rec. 709 SDR" - it tone maps, exactly as this app's
+// default path does. The difference was never the colour handling; it was that
+// CapCut hands frames to the GPU while we ran libx264 in WebAssembly, where
+// x264's assembly does not exist and everything falls back to C.
+//
+// So: keep the colour work in ffmpeg, where the 3D LUT and drawtext already
+// produce a better tone map than the alternative, and move only the ENCODE to
+// the hardware. ffmpeg emits finished bt709 frames - captions already burned in
+// by drawtext, so nothing needs compositing in JavaScript - and those go
+// straight to a hardware encoder.
+//
+// H.264 High is preferred over HEVC here despite being the older codec: every
+// platform ingests it, it is what phones and browsers decode without argument,
+// and for an SDR deliverable the compression gain from HEVC does not pay for
+// the compatibility risk.
+const SDR_HW_CODECS = [
+  'avc1.640028', 'avc1.640020', 'avc1.64001F',   // High 4.0 / 3.2 / 3.1
+  'avc1.4D0028', 'avc1.42E028',                  // Main / Baseline
+  'hvc1.1.6.L123.B0',
+];
+
+async function pickHardwareSdrCodec(w, h) {
+  if (typeof VideoEncoder === 'undefined') return null;
+  const even = n => Math.max(2, n - (n % 2));
+  for (const codec of SDR_HW_CODECS) {
+    try {
+      const r = await withTimeout(VideoEncoder.isConfigSupported({
+        codec, width: even(w), height: even(h), bitrate: 12e6, framerate: 30,
+      }), 5000, 'checking ' + codec);
+      if (r && r.supported) return codec;
+    } catch(e) { /* unsupported or timed out; try the next */ }
+  }
+  return null;
+}
+
+// Try each colour plan on a SINGLE frame to find one this build accepts, rather
+// than discovering a rejected filter option after decoding the whole clip. The
+// plan ladder already exists for the encode path; this reuses it cheaply.
+async function pickWorkingFilter(ff, plans, drawFilter, depth) {
+  const pixFmt = depth > 8 ? 'yuv420p10le' : 'yuv420p';
+  for (const plan of plans) {
+    const vf = plan.pre ? `${plan.pre},${drawFilter}` : drawFilter;
+    ffLog = [];
+    try {
+      await ff.deleteFile('flt.raw');
+    } catch(e) {}
+    try {
+      await withTimeout(ff.exec(['-threads', '1', '-i', 'input.mp4', '-frames:v', '1',
+        '-vf', vf, '-f', 'rawvideo', '-pix_fmt', pixFmt, 'flt.raw']), 30000, 'testing colour plan');
+      if ((await ff.fileSize('flt.raw')) > 0) {
+        try { await ff.deleteFile('flt.raw'); } catch(e) {}
+        return { plan, vf };
+      }
+    } catch(e) { /* rejected; next plan */ }
+  }
+  return null;
+}
+
+async function exportSdrViaHardware({ ff, info, plans, drawFilter, codec, fps, onProgress }) {
+  const outPlan = hdrOutputPlan(codec);
+  if (!outPlan) throw new Error('No raw container for ' + codec);
+  const w = vW - (vW % 2), h = vH - (vH % 2);
+  const chosen = await perfTime('plan probe', () => pickWorkingFilter(ff, plans, drawFilter, 8));
+  if (!chosen) throw new Error('No colour plan this build accepts');
+
+  const frameBytes = hdrFrameBytes(w, h, 8);
+  const totalFrames = Math.max(1, Math.round(vDur * fps));
+  const budget = isMobileBrowser() ? HDR_CHUNK_BUDGET_MOBILE : HDR_CHUNK_BUDGET_DESKTOP;
+  const slices = planDecodeChunks(totalFrames, frameBytes, budget);
+
+  const encoded = [];
+  let encErr = null;
+  const encoder = new VideoEncoder({
+    output: c => { const b = new Uint8Array(c.byteLength); c.copyTo(b); encoded.push(b); },
+    error: e => { encErr = e; },
+  });
+  encoder.configure({
+    codec, width: w, height: h, framerate: fps,
+    bitrate: Math.round(w * h * fps * 0.12),
+    latencyMode: 'quality',
+    avc: /^avc1/.test(codec) ? { format: 'annexb' } : undefined,
+    hevc: /^hvc1|^hev1/.test(codec) ? { format: 'annexb' } : undefined,
+  });
+
+  const segs = await perfTime('segment', () => segmentSource(ff, segmentSeconds(w, h, 8, fps)));
+  const units = segs
+    ? segs.map(name => ({ name }))
+    : slices.map(sl => ({ slice: sl }));
+  let done = 0, idxBase = 0;
+  try {
+    for (const unit of units) {
+      if (encErr) throw encErr;
+      const raw = unit.name
+        ? await perfTime('decode', () => decodeSegmentToRaw(ff, unit.name, w, h, 8, chosen.vf, fps, !!info.variableRate))
+        : await perfTime('decode', () => decodeSliceToRaw(ff, unit.slice, fps, w, h, 8, chosen.vf), unit.slice.count);
+      const got = unit.name
+        ? Math.floor(raw.length / frameBytes)
+        : Math.min(unit.slice.count, Math.floor(raw.length / frameBytes));
+      perfAdd('decode', 0, got);
+      for (let i = 0; i < got; i++) {
+        const idx = unit.name ? idxBase + i : unit.slice.start + i;
+        const planes = framePlanesFromRaw(raw, i, w, h, 8);
+        const frame = new VideoFrame(planesToI420P10(planes), {
+          format: 'I420', codedWidth: w, codedHeight: h,
+          timestamp: Math.round(idx * 1e6 / fps), duration: Math.round(1e6 / fps),
+          colorSpace: { primaries: 'bt709', transfer: 'bt709', matrix: 'bt709', fullRange: false },
+        });
+        const te = performance.now();
+        encoder.encode(frame, { keyFrame: idx % Math.round(fps * 2) === 0 });
+        frame.close();
+        while (encoder.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 0));
+        perfAdd('encode', performance.now() - te, 1);
+        done++;
+      }
+      idxBase += got;
+      if (onProgress) onProgress(done / totalFrames);
+    }
+    await perfTime('encode', () => encoder.flush());
+  } finally {
+    try { if (encoder.state !== 'closed') encoder.close(); } catch(e) {}
+    if (segs) for (const n of segs) { try { await ff.deleteFile(n); } catch(e) {} }
+  }
+  if (encErr) throw encErr;
+  if (!encoded.length) throw new Error('The hardware encoder returned no data');
+
+  await ff.writeFile(outPlan.file, concatChunks(encoded));
+  const outName = getOutName() + '_captioned.mp4';
+  const args = ['-r', String(fps), '-f', outPlan.demux, '-i', outPlan.file];
+  if (info.hasAudio) args.push('-i', 'input.mp4', '-map', '0:v:0', '-map', '1:a:0');
+  else args.push('-map', '0:v:0');
+  args.push('-c', 'copy',
+    '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv',
+    '-movflags', '+faststart');
+  const sdrBsf = colourBsfArgs(outPlan.vcodec, { hdr: false });
+  let r = await perfTime('mux', () => runEncode(ff, sdrBsf ? [...args, ...sdrBsf] : args, outName));
+  if (!r.ok && sdrBsf) {
+    console.warn('Mux with colour tagging failed, retrying without it:', r.reason);
+    r = await perfTime('mux', () => runEncode(ff, args, outName));
+  }
+  if (!r.ok) throw new Error('Muxing failed: ' + r.reason);
+  const data = await ff.readFile(outName);
+  const outInfo = await probeInput(ff, outName);
+  try { await ff.deleteFile(outPlan.file); } catch(e) {}
+  try { await ff.deleteFile(outName); } catch(e) {}
+  return { data, outName, outInfo, plan: chosen.plan, codec, frames: done };
+}
+
+// ---------------------------------------------------------------------------
+// HDR EXPORT: rasterising the captions.
+//
+// The SDR burn hands the captions to ffmpeg's drawtext. That is not available
+// here - the whole point of this path is that ffmpeg never touches the pixels -
+// so the captions are drawn onto a normal 2D canvas and blended into the frame
+// planes instead.
+//
+// Layout comes from the SAME functions the drawtext builder uses -
+// layoutCaption, coordsToPx, captionLineHeight, outlineWidth, baselineFor - so
+// the two exports place text identically. Duplicating the layout maths here is
+// how the HDR and SDR exports would silently drift apart.
+//
+// Only the region that actually contains text is returned. Blending a full
+// 1080x1920 RGBA raster into every frame would cost ~8 MB of pointless work per
+// frame; captions occupy a small band, and outside it the video must stay
+// untouched anyway.
+let _capCanvas = null, _capCtx = null, _capCacheKey = null, _capCacheVal = null;
+
+// What the caption looks like depends only on which captions are active and, in
+// word mode, which word is currently highlighted - NOT on the exact timestamp.
+// At 30fps a caption typically holds the same appearance for tens of frames, so
+// keying on that state turns a per-frame canvas render into one render per
+// visible change. This is the difference between rasterising 3600 times and
+// rasterising a few dozen times on a two-minute clip.
+function captionStateKey(t, active) {
+  let k = '';
+  for (const c of active) {
+    k += c.start.toFixed(3) + '>';
+    if (captionStyle === 'word') {
+      const words = getCapWords(c);
+      let idx = -1;
+      for (let i = 0; i < words.length; i++) if (t >= words[i].start && t < words[i].end) { idx = i; break; }
+      k += idx;
+    }
+    k += '|';
+  }
+  return k;
+}
+
+// The GPU path uploads a whole-frame texture rather than a cropped region, so
+// it needs the canvas itself plus the key that says whether it changed.
+function captionCanvasAt(t) {
+  const active = captions.filter(c => t >= c.start && t < c.end);
+  if (!active.length) return { canvas: null, key: 'none' };
+  const key = captionStateKey(t, active) + '#' + vW + 'x' + vH;
+  captionRasterAt(t);          // draws into _capCanvas (or confirms it is current)
+  return { canvas: _capCanvas, key };
+}
+
+function captionRasterAt(t) {
+  const active = captions.filter(c => t >= c.start && t < c.end);
+  if (!active.length) { _capCacheKey = null; _capCacheVal = null; return null; }
+  const key = captionStateKey(t, active) + '#' + vW + 'x' + vH;
+  if (key === _capCacheKey) return _capCacheVal;
+  if (!_capCanvas) {
+    _capCanvas = document.createElement('canvas');
+    _capCtx = _capCanvas.getContext('2d', { willReadFrequently: true });
+  }
+  if (_capCanvas.width !== vW || _capCanvas.height !== vH) {
+    _capCanvas.width = vW; _capCanvas.height = vH;
+  }
+  const ctx = _capCtx;
+  ctx.clearRect(0, 0, vW, vH);
+
+  const fs = Math.round(fontSize * (vH / 800));
+  const dispFs = captionStyle === 'large' ? Math.round(fs * 1.4) : fs;
+  const weight = fontWeightForSelected();
+  const face = selectedFont.replace(/\s+Bold$/, '');
+  ctx.font = `${weight} ${dispFs}px '${face}', sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+
+  const raw = coordsToPx(coordX, coordY);
+  const xPx = Math.round(raw.px), yPx = Math.round(raw.py);
+  const lineH = captionLineHeight(dispFs);
+  const fm = fontMetrics(ctx);
+  const borderw = outlineWidth(dispFs);
+  const gap = wordGapFor(dispFs);
+
+  // Track the ink box as we go, so only the touched region is blended.
+  let minX = vW, minY = vH, maxX = 0, maxY = 0;
+  const note = (x, y, w, h) => {
+    minX = Math.min(minX, x); minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+  };
+  const baseline = cy => fm ? baselineFor(cy, fm) : cy + dispFs * 0.35;
+  // Outline first for the whole caption, fills after - same two-pass order the
+  // drawtext builder uses, so a later word's stroke cannot cut into an earlier
+  // word's glyphs.
+  const strokeThenFill = (items) => {
+    if (borderw > 0) {
+      ctx.strokeStyle = captionStyle === 'outline' ? olColor : '#000000';
+      ctx.lineWidth = borderw * 2;
+      for (const it of items) ctx.strokeText(it.text, it.x, it.y);
+    }
+    for (const it of items) { ctx.fillStyle = it.color; ctx.fillText(it.text, it.x, it.y); }
+  };
+
+  for (const cap of active) {
+    const { lines } = layoutCaption(cap, dispFs, captionStyle === 'word' ? gap : undefined);
+    const items = [];
+    lines.forEach((line, li) => {
+      const cy = Math.round(yPx + (li - (lines.length - 1) / 2) * lineH);
+      const by = baseline(cy);
+      let cursor = xPx - line.width / 2;
+      for (const it of line.items) {
+        const w = ctx.measureText(it.text).width;
+        // In word style each word turns colour while it is being spoken.
+        const spoken = captionStyle === 'word' && t >= it.start && t < it.end;
+        const color = captionStyle === 'word'
+          ? (spoken ? hlColor : '#FFFFFF')
+          : captionStyle === 'white' ? pillTextColor
+          : captionStyle === 'caps' ? '#FFFFFF' : hlColor;
+        items.push({ text: it.text, x: Math.round(cursor), y: by, color });
+        note(cursor - borderw, cy - lineH, w + borderw * 2, lineH * 2);
+        cursor += w + (captionStyle === 'word' ? gap : ctx.measureText(' ').width);
+      }
+    });
+    // The pill style paints a background behind the text before anything else.
+    if (captionStyle === 'white' && items.length) {
+      const padX = Math.round(dispFs * 0.34), padY = Math.round(dispFs * 0.22);
+      const bx = Math.max(0, minX - padX), by2 = Math.max(0, minY - padY);
+      const bw = Math.min(vW - bx, (maxX - minX) + padX * 2), bh = Math.min(vH - by2, (maxY - minY) + padY * 2);
+      ctx.save();
+      ctx.fillStyle = pillBgColor;
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(bx, by2, bw, bh, Math.round(dispFs * 0.18)); ctx.fill(); }
+      else ctx.fillRect(bx, by2, bw, bh);
+      ctx.restore();
+      note(bx, by2, bw, bh);
+    }
+    strokeThenFill(items);
+  }
+  if (maxX <= minX || maxY <= minY) { _capCacheKey = key; _capCacheVal = null; return null; }
+
+  // Snap outward to even coordinates: chroma is subsampled 2x2, so an odd
+  // origin would split chroma blocks across the region boundary.
+  const x0 = Math.max(0, Math.floor(minX) & ~1), y0 = Math.max(0, Math.floor(minY) & ~1);
+  const x1 = Math.min(vW, (Math.ceil(maxX) + 1) & ~1), y1 = Math.min(vH, (Math.ceil(maxY) + 1) & ~1);
+  if (x1 <= x0 || y1 <= y0) { _capCacheKey = key; _capCacheVal = null; return null; }
+  const img = ctx.getImageData(x0, y0, x1 - x0, y1 - y0);
+  _capCacheKey = key;
+  _capCacheVal = { data: img.data, width: img.width, height: img.height, x: x0, y: y0 };
+  return _capCacheVal;
+}
+
+// ---------------------------------------------------------------------------
+// HDR EXPORT WITHOUT WEBCODECS: ffmpeg + libx265, all 10 bits kept.
+//
+// This is the route for machines whose GPU has no 10-bit HEVC encoder - which
+// includes a lot of Windows laptops and most Windows-on-ARM - and it needs no
+// browser codec support at all. ffmpeg decodes the HDR source, burns the
+// captions, and encodes HEVC Main10 in software. Slower than hardware, but it
+// runs anywhere the app runs, uploads nothing, and produces full 10-bit output
+// with no banding, which is better than the 8-bit hardware fallback.
+//
+// THE COLOUR PROBLEM, and why it is measured rather than assumed.
+//
+// drawtext takes an RGB colour and converts it to the frame's YUV using
+// libavfilter's drawutils. Historically that is a fixed BT.601 limited-range
+// matrix; newer builds may be colourspace-aware. Either way it does not know
+// the frame is BT.2020/HLG, so asking for #FFFFFF writes whatever that matrix
+// thinks white is - which on an HLG frame is PEAK brightness, 1000+ nits of
+// searing caption, exactly the trap the compositor above exists to avoid.
+//
+// Guessing the matrix would make this build-dependent and silently wrong. So
+// instead the mapping is measured: draw four known colours onto a real frame
+// from the actual source, read back what came out, and solve for the input
+// colour that yields the value we want. RGB->YUV is affine, so black plus the
+// three primaries determine it exactly, and the result is correct whatever
+// drawutils happens to do in this build.
+
+// Solve the 3x3 system: given the measured response, what RGB produces target?
+function solveDrawColor(calib, target) {
+  const k = calib.black;
+  const M = [
+    [calib.red.y - k.y, calib.green.y - k.y, calib.blue.y - k.y],
+    [calib.red.u - k.u, calib.green.u - k.u, calib.blue.u - k.u],
+    [calib.red.v - k.v, calib.green.v - k.v, calib.blue.v - k.v],
+  ];
+  const t = [target.y - k.y, target.u - k.u, target.v - k.v];
+  const det =
+    M[0][0]*(M[1][1]*M[2][2] - M[1][2]*M[2][1]) -
+    M[0][1]*(M[1][0]*M[2][2] - M[1][2]*M[2][0]) +
+    M[0][2]*(M[1][0]*M[2][1] - M[1][1]*M[2][0]);
+  if (!isFinite(det) || Math.abs(det) < 1e-9) return null;   // degenerate measurement
+  const inv = (r, c) => {
+    const m = [0,1,2].filter(i => i !== r), n = [0,1,2].filter(i => i !== c);
+    const s = ((r + c) % 2 ? -1 : 1);
+    return s * (M[m[0]][n[0]]*M[m[1]][n[1]] - M[m[0]][n[1]]*M[m[1]][n[0]]) / det;
+  };
+  // Transpose of the cofactor matrix, i.e. the inverse.
+  const rgb = [0,1,2].map(i => inv(0,i)*t[0] + inv(1,i)*t[1] + inv(2,i)*t[2]);
+  const clipped = rgb.some(v => v < -0.002 || v > 1.002);
+  return {
+    rgb: rgb.map(v => Math.min(Math.max(v, 0), 1)),
+    // A colour outside [0,1] cannot be requested from drawtext at all: it is
+    // outside the gamut its matrix can express on this frame. Clamping keeps
+    // the hue close and loses saturation, which beats a wrapped-around colour.
+    clipped,
+  };
+}
+
+// The measured mapping, as a function from an sRGB caption colour to the hex
+// drawtext must be given so the result lands where we want it in HDR.
+function makeHdrColorMapper(calib, trc, depth = 10) {
+  const max = (1 << depth) - 1;
+  return function mapHexToHdrFF(hex) {
+    const h = String(hex).replace('#', '');
+    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    const want = captionColorToHdrYuv10(r, g, b, trc, depth);
+    const sol = calib && solveDrawColor(calib, { y: want.y / max, u: want.cb / max, v: want.cr / max });
+    if (!sol) return hexToFFColor(hex);          // measurement failed; better than nothing
+    const q = v => Math.round(v * 255).toString(16).padStart(2, '0').toUpperCase();
+    return '0x' + q(sol.rgb[0]) + q(sol.rgb[1]) + q(sol.rgb[2]) + 'FF';
+  };
+}
+
+// Draw four known colours on a real frame from the source and read back what
+// drawutils actually produced. drawbox shares ff_draw_color with drawtext, so
+// it measures the same conversion without needing a font loaded.
+async function calibrateDrawColor(ff, depth = 10) {
+  const pixFmt = depth > 8 ? 'yuv420p10le' : 'yuv420p';
+  const name = 'calib.raw';
+  const S = 16, band = S / 4;
+  const boxes = ['0x000000FF', '0xFF0000FF', '0x00FF00FF', '0x0000FFFF']
+    .map((c, i) => `drawbox=x=${i * band}:y=0:w=${band}:h=${S}:color=${c}:t=fill`).join(',');
+  try { await ff.deleteFile(name); } catch(e) {}
+  ffLog = [];
+  try {
+    await ff.exec(['-threads', '1', '-i', 'input.mp4', '-frames:v', '1',
+      '-vf', `scale=${S}:${S},${boxes}`, '-f', 'rawvideo', '-pix_fmt', pixFmt, name]);
+  } catch(e) { console.warn('draw colour calibration failed', e); return null; }
+  let raw;
+  try { raw = await ff.readFile(name); } catch(e) { return null; }
+  try { await ff.deleteFile(name); } catch(e) {}
+  const need = hdrFrameBytes(S, S, depth);
+  if (!raw || raw.length < need) { console.warn('calibration frame too small'); return null; }
+  const pl = framePlanesFromRaw(raw, 0, S, S, depth);
+  const max = (1 << depth) - 1;
+  // Sample the middle of each band, away from any edge blending.
+  const at = i => {
+    const x = Math.round(i * band + band / 2), y = S / 2;
+    return {
+      y: pl.yPlane[y * S + x] / max,
+      u: pl.uPlane[(y >> 1) * (S >> 1) + (x >> 1)] / max,
+      v: pl.vPlane[(y >> 1) * (S >> 1) + (x >> 1)] / max,
+    };
+  };
+  const calib = { black: at(0), red: at(1), green: at(2), blue: at(3) };
+  console.log('drawtext colour response measured:', calib);
+  return calib;
+}
+
+// Export quality, for both paths.
+//
+// The old defaults were preset=ultrafast with crf 22-24, chosen when software
+// HEVC in WASM was expected to take minutes. It does not, so that trade was
+// paid for nothing: ultrafast switches off most of the encoder's analysis, and
+// crf 24 is aggressive for 10-bit HDR, where the wider range makes blocking and
+// banding easier to see than it would be in SDR.
+//
+// Presets are roughly a doubling of encode time per step, so "best" is perhaps
+// 10-20x slower than "fast" - which, from a few seconds, is still tolerable.
+// BUY QUALITY WITH BITS, NOT WITH ANALYSIS TIME.
+//
+// "Best" was preset=slow, crf 18, and took minutes on a ten-second clip. The
+// mistake was reaching for a slower preset. The two knobs are not equally
+// priced:
+//
+//   preset slow vs medium  ~5% better compression efficiency, ~2.5x the time
+//   crf 18 -> 16           ~25-30% more bitrate, plainly closer to the source
+//
+// Encoder presets buy EFFICIENCY - the same quality in fewer bits - which is
+// what matters when bandwidth is the constraint. Here it is not: the file is
+// going straight to a platform that will re-encode it anyway. What matters is
+// fidelity to the source, and bits buy that far more cheaply than analysis
+// does. So "Best" now spends CRF instead of preset: higher quality than the old
+// setting AND roughly 2.5x faster.
+const EXPORT_QUALITY = {
+  fast:     { label: 'Fast',     preset: 'veryfast', crf: 22,
+              note: 'fastest — on HDR sources the browser tone maps, which looks brighter and flatter' },
+  balanced: { label: 'Balanced', preset: 'medium',   crf: 20,
+              note: 'recommended — reference 3D LUT colour, hardware encode' },
+  best:     { label: 'Best',     preset: 'medium',   crf: 16,
+              note: 'reference colour, software encode, slowest' },
+};
+let exportQuality = localStorage.getItem('cc_export_quality') || 'balanced';
+if (!EXPORT_QUALITY[exportQuality]) exportQuality = 'balanced';
+
+function currentQuality() { return EXPORT_QUALITY[exportQuality] || EXPORT_QUALITY.balanced; }
+
+function setExportQuality(q) {
+  if (!EXPORT_QUALITY[q]) return;
+  exportQuality = q;
+  localStorage.setItem('cc_export_quality', q);
+  const n = document.getElementById('qualityNote');
+  if (n) n.textContent = EXPORT_QUALITY[q].note;
+  renderHdrNote();
+}
+
+// Does this libx265 actually do 10-bit? The capability panel only reports that
+// the encoder exists; a build compiled 8-bit-only still lists libx265 and then
+// fails at encode time, which would waste an entire export before failing.
+async function probeX265TenBit(ff) {
+  const out = 'x265probe.mp4';
+  try { await ff.deleteFile(out); } catch(e) {}
+  ffLog = [];
+  const r = await runEncode(ff, [
+    '-threads', '1',
+    '-f', 'lavfi', '-i', 'color=c=gray:s=64x64:r=1:d=1',
+    '-frames:v', '1', '-c:v', 'libx265', '-preset', 'ultrafast',
+    '-pix_fmt', 'yuv420p10le', '-x265-params', 'log-level=none',
+  ], out);
+  try { await ff.deleteFile(out); } catch(e) {}
+  return { ok: r.ok, reason: r.reason || '' };
+}
+
+// x265 needs the HDR signalling in its OWN parameters as well as in the
+// container tags: the container tells a player, but only these put the values
+// into the bitstream's VUI, which is what survives a platform re-encode.
+function x265HdrParams(info, preset) {
+  const pq = info.hdrTrc === 'smpte2084';
+  const parts = [
+    'colorprim=bt2020',
+    'transfer=' + (pq ? 'smpte2084' : 'arib-std-b67'),
+    'colormatrix=bt2020nc',
+    'range=limited',
+    'log-level=error',
+    // Tuning x265 documents specifically for HDR, and the reason the first
+    // exports looked soft next to the source:
+    //   aq-mode=3 biases adaptive quantisation toward dark regions. HDR spends
+    //     far more of its range below diffuse white than SDR does, so the
+    //     default mode under-allocates bits exactly where HDR shadows live.
+    //   the chroma QP offsets counter HEVC's habit of quantising chroma harder
+    //     than luma, which on BT.2020's wider primaries shows up as smeared
+    //     saturated colour - skies and skin first.
+    'aq-mode=3',
+    'cbqpoffs=-2',
+    'crqpoffs=-2',
+  ];
+  // HDR10 wants static mastering metadata. HLG carries none by design, so it
+  // is added only for PQ - and only generic BT.2020/1000-nit values, since the
+  // source's own were deliberately stripped and inventing specific ones would
+  // be worse than stating the standard defaults.
+  if (pq) {
+    parts.push('master-display=G(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L(10000000,1)');
+    parts.push('max-cll=1000,400');
+    parts.push('hdr10=1');
+    // Block-level HDR10 optimisation. PQ only - it assumes the PQ curve, so it
+    // is meaningless (and unset) for HLG.
+    parts.push('hdr10-opt=1');
+  }
+  return parts.join(':');
+}
+
+function x265EncodeArgs(filter, info, opts = {}) {
+  const q = currentQuality();
+  const { preset = q.preset, crf = q.crf, depth = 10 } = opts;
+  const args = ['-i', 'input.mp4'];
+  if (filter) args.push('-vf', filter);
+  args.push(
+    ...ffThreadArgs(),
+    '-c:v', 'libx265', '-preset', preset, '-crf', String(crf),
+    '-pix_fmt', depth > 8 ? 'yuv420p10le' : 'yuv420p',
+    '-x265-params', x265HdrParams(info, preset),
+    '-color_primaries', 'bt2020',
+    '-color_trc', info.hdrTrc === 'smpte2084' ? 'smpte2084' : 'arib-std-b67',
+    '-colorspace', 'bt2020nc', '-color_range', 'tv',
+    '-tag:v', 'hvc1');
+  if (info.hasAudio) args.push('-c:a', info.audioIsAac ? 'copy' : 'aac', ...(info.audioIsAac ? [] : ['-b:a', '192k']));
+  else args.push('-an');
+  args.push('-movflags', '+faststart');
+  return args;
+}
+
+// Full 10-bit HDR export, entirely inside ffmpeg. No WebCodecs, no GPU
+// encoder, no upload - so this works on machines whose hardware cannot encode
+// 10-bit HEVC, which is the case on many Windows laptops and most Windows ARM.
+// It is slower than a hardware encoder and produces a better file than the
+// 8-bit hardware fallback, so it is offered wherever libx265 can do 10 bits.
+async function exportHdrViaX265({ ff, info, fontLoaded, preset, crf, onProgress }) {
+  if (!info || !info.hdrTrc) throw new Error('This source is not HDR, so there is nothing to preserve.');
+  const ten = await probeX265TenBit(ff);
+  if (!ten.ok) throw new Error('This ffmpeg build lists libx265 but cannot encode 10-bit: ' + (ten.reason || 'unknown'));
+  // Measure how drawtext renders colour on THIS build and THIS source, then
+  // build the caption filter with colours pre-compensated for it.
+  const calib = await perfTime('calibrate', () => calibrateDrawColor(ff, 10));
+  if (!calib) console.warn('Colour calibration failed; captions may render too bright.');
+  const filter = await buildDrawtextFilter(fontLoaded, calib ? makeHdrColorMapper(calib, info.hdrTrc, 10) : null);
+  if (!filter) throw new Error('No captions to burn');
+  const outName = getOutName() + '_captioned_hdr.mp4';
+  if (onProgress) onProgress(0.05);
+  const r = await runEncode(ff, x265EncodeArgs(filter, info, { preset, crf, depth: 10 }), outName);
+  if (!r.ok) throw new Error('10-bit HDR encode failed: ' + r.reason);
+  const data = await ff.readFile(outName);
+  // Read back what was actually produced, same as the SDR path does, so a
+  // mis-tagged export is visible rather than assumed correct.
+  const outInfo = await probeInput(ff, outName);
+  try { await ff.deleteFile(outName); } catch(e) {}
+  return { data, outName, outInfo, calibrated: !!calib, colorClipped: false };
+}
+
+// ---------------------------------------------------------------------------
+// HDR EXPORT: raw 10-bit plumbing.
+//
+// The pieces here are deliberately pure functions over buffers, so they can be
+// reasoned about and tested without a browser, a GPU or a codec.
+//
+// MEMORY IS THE CONSTRAINT. Decoded 10-bit 4:2:0 costs 3 bytes per pixel: a
+// single 1080x1920 frame is 6.2 MB, and a 60-second clip at 30 fps is about
+// 11 GB of raw video. It cannot be decoded in one pass, so ffmpeg is asked for
+// a slice at a time and each slice is encoded and thrown away before the next
+// is decoded. The budget is what bounds peak memory, and it is lower on mobile
+// because iOS Safari will kill a tab that asks for too much.
+// Sized against SEEK COST, not just memory. Each slice is a separate ffmpeg run
+// that seeks with -ss, and -ss lands on the preceding keyframe and decodes
+// forward from there. With keyframes every ~2 seconds and slices of 20 frames,
+// two thirds of every decode is thrown away re-reaching the start of the slice.
+// Bigger slices amortise that: at 8-bit 1080p a 320 MB budget holds ~100 frames,
+// which is longer than a typical keyframe interval, so almost nothing is wasted.
+const HDR_CHUNK_BUDGET_DESKTOP = 320 * 1024 * 1024;
+const HDR_CHUNK_BUDGET_MOBILE  =  64 * 1024 * 1024;
+
+
+
+// Bytes for one yuv420p10le frame: 2 bytes a sample, 1.5 samples a pixel.
+const hdrFrameBytes = (w, h, depth = 10) => depth > 8 ? w * h * 3 : Math.round(w * h * 1.5);
+
+// Split a clip into decode slices that each fit the budget. Always at least one
+// frame per slice - a 4K frame alone exceeds the mobile budget, and returning
+// zero-length slices would loop forever.
+function planDecodeChunks(totalFrames, frameBytes, budgetBytes) {
+  const per = Math.max(1, Math.floor(budgetBytes / Math.max(1, frameBytes)));
+  const chunks = [];
+  for (let start = 0; start < totalFrames; start += per) {
+    chunks.push({ start, count: Math.min(per, totalFrames - start) });
+  }
+  return chunks;
+}
+
+// Views onto one frame inside a rawvideo buffer. Views, not copies: a copy per
+// frame would double peak memory for no benefit, since the caller writes the
+// captions in place and hands the same memory to the encoder.
+//
+// Uint16Array demands a byte offset that is a multiple of 2. Every plane offset
+// here is a multiple of 2 by construction, but a buffer handed to us at an odd
+// byteOffset would still throw, so that case falls back to a copy rather than
+// failing the export.
+function framePlanesFromRaw(raw, index, w, h, depth = 10) {
+  const ySamples = w * h, cSamples = (w >> 1) * (h >> 1);
+  const bytesPer = depth > 8 ? 2 : 1;
+  const Arr = depth > 8 ? Uint16Array : Uint8Array;
+  const frameBytes = (ySamples + 2 * cSamples) * bytesPer;
+  const base = raw.byteOffset + index * frameBytes;
+  let buf = raw.buffer, off = base;
+  if (bytesPer === 2 && off % 2 !== 0) {
+    const copy = raw.slice(index * frameBytes, index * frameBytes + frameBytes);
+    buf = copy.buffer; off = copy.byteOffset;
+  }
+  return {
+    yPlane: new Arr(buf, off, ySamples),
+    uPlane: new Arr(buf, off + ySamples * bytesPer, cSamples),
+    vPlane: new Arr(buf, off + (ySamples + cSamples) * bytesPer, cSamples),
+    width: w, height: h, yStride: w, cStride: w >> 1, depth,
+  };
+}
+
+// Pack the three planes back into the contiguous I420P10 layout a VideoFrame
+// constructor expects. When the planes are already views on one buffer in the
+// right order - which is what framePlanesFromRaw returns - this hands back that
+// same memory untouched instead of copying 6 MB per frame.
+function planesToI420P10(pl) {
+  const depth = pl.depth || 10, bytesPer = depth > 8 ? 2 : 1;
+  const ySamples = pl.width * pl.height, cSamples = (pl.width >> 1) * (pl.height >> 1);
+  const contiguous =
+    pl.yStride === pl.width && pl.cStride === (pl.width >> 1) &&
+    pl.yPlane.buffer === pl.uPlane.buffer && pl.uPlane.buffer === pl.vPlane.buffer &&
+    pl.uPlane.byteOffset === pl.yPlane.byteOffset + ySamples * bytesPer &&
+    pl.vPlane.byteOffset === pl.uPlane.byteOffset + cSamples * bytesPer;
+  if (contiguous) {
+    return new Uint8Array(pl.yPlane.buffer, pl.yPlane.byteOffset, (ySamples + 2 * cSamples) * bytesPer);
+  }
+  const out = depth > 8 ? new Uint16Array(ySamples + 2 * cSamples) : new Uint8Array(ySamples + 2 * cSamples);
+  for (let r = 0; r < pl.height; r++) out.set(pl.yPlane.subarray(r * pl.yStride, r * pl.yStride + pl.width), r * pl.width);
+  const ch = pl.height >> 1, cw = pl.width >> 1;
+  for (let r = 0; r < ch; r++) {
+    out.set(pl.uPlane.subarray(r * pl.cStride, r * pl.cStride + cw), ySamples + r * cw);
+    out.set(pl.vPlane.subarray(r * pl.cStride, r * pl.cStride + cw), ySamples + cSamples + r * cw);
+  }
+  return new Uint8Array(out.buffer);
+}
+
+// --- raw elementary streams -------------------------------------------------
+//
+// The encoder hands back bare compressed frames with no container. Rather than
+// pull in a muxing library, they are wrapped in the simplest container each
+// codec has and handed back to ffmpeg, which then muxes to MP4 or WebM, copies
+// the original audio across, and writes the colour tags. ffmpeg is already
+// loaded and already known to get the tagging right, so this avoids a second
+// muxer that would have to be taught HDR separately.
+//
+// HEVC and AV1 need no container at all - a concatenation of Annex-B access
+// units or of OBUs is a valid stream. VP9 does, and IVF is the minimal one.
+const IVF_FOURCC = { vp09: 'VP90', vp08: 'VP80', av01: 'AV01' };
+
+function buildIvf(chunks, { width, height, fpsNum = 30, fpsDen = 1, fourcc = 'VP90' }) {
+  let payload = 0;
+  for (const c of chunks) payload += c.byteLength;
+  const out = new Uint8Array(32 + chunks.length * 12 + payload);
+  const dv = new DataView(out.buffer);
+  const ascii = (at, str) => { for (let i = 0; i < str.length; i++) out[at + i] = str.charCodeAt(i); };
+  ascii(0, 'DKIF');
+  dv.setUint16(4, 0, true);            // version
+  dv.setUint16(6, 32, true);           // header length
+  ascii(8, fourcc);
+  dv.setUint16(12, width, true);
+  dv.setUint16(14, height, true);
+  dv.setUint32(16, fpsNum, true);      // time base denominator / rate
+  dv.setUint32(20, fpsDen, true);      // time base numerator / scale
+  dv.setUint32(24, chunks.length, true);
+  dv.setUint32(28, 0, true);           // unused
+  let at = 32;
+  chunks.forEach((c, i) => {
+    dv.setUint32(at, c.byteLength, true);
+    // 64-bit presentation timestamp, in frames.
+    dv.setUint32(at + 4, i, true);
+    dv.setUint32(at + 8, 0, true);
+    out.set(c, at + 12);
+    at += 12 + c.byteLength;
+  });
+  return out;
+}
+
+// HEVC Annex-B and AV1 OBU streams are just their frames back to back.
+function concatChunks(chunks) {
+  let n = 0;
+  for (const c of chunks) n += c.byteLength;
+  const out = new Uint8Array(n);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.byteLength; }
+  return out;
+}
+
+// Which raw container and ffmpeg demuxer each encoder family needs, and what to
+// tell ffmpeg to produce. VP9 is the odd one out: it has to go into WebM, which
+// is exactly why it is not good enough for Instagram.
+function hdrOutputPlan(codec) {
+  if (/^avc1/.test(codec))        return { raw: 'annexb', file: 'out.h264', demux: 'h264', ext: 'mp4', mux: 'mp4', vcodec: 'h264' };
+  if (/^(hvc1|hev1)/.test(codec)) return { raw: 'annexb', file: 'hdr.h265', demux: 'hevc', ext: 'mp4', mux: 'mp4', vcodec: 'hevc' };
+  if (/^av01/.test(codec))        return { raw: 'obu',    file: 'hdr.obu',  demux: 'obu',  ext: 'mp4', mux: 'mp4', vcodec: 'av1' };
+  if (/^vp09/.test(codec))        return { raw: 'ivf',    file: 'hdr.ivf',  demux: 'ivf',  ext: 'webm', mux: 'webm', vcodec: 'vp9' };
+  return null;
+}
+
+// TAGGING A COPIED STREAM. This is why an HDR export came out washed out.
+//
+// -color_primaries / -color_trc / -colorspace are ENCODER options. With
+// -c copy there is no encoder, so ffmpeg has nothing to apply them to and the
+// output is written untagged. A hardware encoder reached through WebCodecs also
+// writes no colour information of its own into the bitstream, because
+// VideoEncoderConfig has nowhere to say it.
+//
+// The result: HLG-encoded pixels in a file that claims nothing. Every player
+// then assumes BT.709 SDR and renders an HDR signal on an SDR curve, which is
+// exactly the bright, flat, washed-out image this whole path exists to avoid -
+// and it looks like an 8-bit problem, so the blame lands in the wrong place.
+//
+// The fix is a bitstream filter, which rewrites the VUI inside the stream
+// itself rather than asking a non-existent encoder to. The MP4 muxer then
+// writes a matching colr box from it. Values are H.273 code points:
+//   primaries 9 = BT.2020, 1 = BT.709
+//   transfer 18 = HLG (arib-std-b67), 16 = PQ (smpte2084), 1 = BT.709
+//   matrix    9 = BT.2020 non-constant luminance, 1 = BT.709
+const H273 = {
+  bt2020: { primaries: 9, matrix: 9 },
+  bt709:  { primaries: 1, matrix: 1 },
+  hlg: 18, pq: 16, sdr: 1,
+};
+
+function colourBsfArgs(vcodec, { hdr, trc }) {
+  const bsf = vcodec === 'hevc' ? 'hevc_metadata' : vcodec === 'h264' ? 'h264_metadata' : null;
+  if (!bsf) return null;                      // AV1/VP9 have no equivalent filter here
+  const p = hdr ? H273.bt2020 : H273.bt709;
+  const t = hdr ? (trc === 'smpte2084' ? H273.pq : H273.hlg) : H273.sdr;
+  return ['-bsf:v', `${bsf}=colour_primaries=${p.primaries}:transfer_characteristics=${t}` +
+                    `:matrix_coefficients=${p.matrix}:video_full_range_flag=0`];
+}
+
+// Remux the encoded stream with the original audio and the right colour tags.
+// -c copy throughout: the video is already encoded and the audio is untouched,
+// so nothing is re-compressed here.
+// One remux for both targets: BT.709 for the SDR deliverable, BT.2020/HLG for
+// the HDR one, tagged in the bitstream either way.
+function sdrOrHdrRemuxArgs(plan, info, fps, hasAudio, sdr, skipBsf) {
+  if (!sdr) return hdrRemuxArgs(plan, info, fps, hasAudio, skipBsf);
+  const args = ['-r', String(fps), '-f', plan.demux, '-i', plan.file];
+  if (hasAudio) args.push('-i', 'input.mp4', '-map', '0:v:0', '-map', '1:a:0');
+  else args.push('-map', '0:v:0');
+  args.push('-c', 'copy',
+    '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv');
+  const bsf = colourBsfArgs(plan.vcodec, { hdr: false });
+  if (bsf && !skipBsf) args.push(...bsf);
+  if (plan.vcodec === 'hevc') args.push('-tag:v', 'hvc1');
+  args.push('-movflags', '+faststart');
+  return args;
+}
+
+function hdrRemuxArgs(plan, info, fps, hasAudio, skipBsf) {
+  const trc = info.hdrTrc === 'smpte2084' ? 'smpte2084' : 'arib-std-b67';
+  const args = ['-r', String(fps), '-f', plan.demux, '-i', plan.file];
+  if (hasAudio) args.push('-i', 'input.mp4', '-map', '0:v:0', '-map', '1:a:0');
+  else args.push('-map', '0:v:0');
+  args.push('-c', 'copy',
+    '-color_primaries', 'bt2020', '-color_trc', trc, '-colorspace', 'bt2020nc',
+    '-color_range', 'tv');
+  const bsf = colourBsfArgs(plan.vcodec, { hdr: true, trc: info.hdrTrc });
+  if (bsf && !skipBsf) args.push(...bsf);
+  if (plan.mux === 'mp4') {
+    if (plan.vcodec === 'hevc') args.push('-tag:v', 'hvc1');
+    else if (plan.vcodec === 'av1') args.push('-tag:v', 'av01');
+    args.push('-movflags', '+faststart');
+  }
+  return args;
+}
+
 // Drawing captions INTO an HDR frame.
 //
 // Needed by every HDR route, so it lives on its own and is independent of which
@@ -3128,7 +5125,7 @@ function pqInverseEotf(nits) {
 
 // An sRGB caption colour as 10-bit limited-range BT.2020 Y'CbCr in the frame's
 // own transfer. Returns integers ready to write straight into the planes.
-function captionColorToHdrYuv10(r8, g8, b8, trc) {
+function captionColorToHdrYuv10(r8, g8, b8, trc, depth = 10) {
   const lin = [r8, g8, b8].map(v => srgbToLinear(Math.min(Math.max(v, 0), 255) / 255));
   const m = BT709_TO_BT2020;
   // Linear BT.2020, scaled so full-white text sits at diffuse white.
@@ -3158,10 +5155,13 @@ function captionColorToHdrYuv10(r8, g8, b8, trc) {
   // 13/255, which is 10-bit chroma quantisation amplified by the OETF's
   // near-vertical slope at low signal, landing in channels already near zero.
   const q = (v, lo, hi) => Math.min(Math.max(Math.round(v), lo), hi);
+  // Limited-range endpoints scale with depth: 16/235/128 at 8-bit are the same
+  // fractions as 64/940/512 at 10-bit.
+  const k = depth > 8 ? (1 << (depth - 8)) : 1;
   return {
-    y:  q(64 + 876 * yp, 64, 940),
-    cb: q(512 + 896 * cb, 64, 960),
-    cr: q(512 + 896 * cr, 64, 960),
+    y:  q((16 + 219 * yp) * k, 16 * k, 235 * k),
+    cb: q((128 + 224 * cb) * k, 16 * k, 240 * k),
+    cr: q((128 + 224 * cr) * k, 16 * k, 240 * k),
   };
 }
 
@@ -3178,6 +5178,7 @@ function captionColorToHdrYuv10(r8, g8, b8, trc) {
 // its source outside the caption box.
 function blendCaptionIntoHdrPlanes(dst, src, trc) {
   const { yPlane, uPlane, vPlane, width, height } = dst;
+  const depth = dst.depth || 10;
   const yStride = dst.yStride || width;
   const cStride = dst.cStride || (width >> 1);
   const { data, width: sw, height: sh } = src;
@@ -3186,7 +5187,7 @@ function blendCaptionIntoHdrPlanes(dst, src, trc) {
   const colorAt = (r, g, b) => {
     const key = (r << 16) | (g << 8) | b;
     let c = cache.get(key);
-    if (!c) { c = captionColorToHdrYuv10(r, g, b, trc); cache.set(key, c); }
+    if (!c) { c = captionColorToHdrYuv10(r, g, b, trc, depth); cache.set(key, c); }
     return c;
   };
 
@@ -3257,6 +5258,768 @@ function probeWebglHdr(space) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// FEEDING THE BROWSER'S DECODER WITHOUT A DEMUXER LIBRARY.
+//
+// VideoDecoder wants EncodedVideoChunks - one per picture - which normally
+// means an MP4 demuxer. It does not have to. ffmpeg can convert the track to an
+// Annex-B elementary stream as a STREAM COPY (no decoding, ~a second), and
+// Annex-B is trivially splittable in JavaScript: NAL units separated by start
+// codes, and a picture begins at the first VCL NAL whose
+// first_slice_segment_in_pic_flag is set.
+//
+// That flag is the very first BIT of the slice header, immediately after the
+// two-byte HEVC NAL header - so finding picture boundaries needs no bitstream
+// parser, just a byte and a mask. H.264 is the same idea one byte earlier.
+//
+// Timestamps are synthesised from the frame rate. The pipeline already assumes
+// constant frame rate everywhere else, and phone footage is CFR.
+
+// Offsets of every start code (00 00 01, with an optional extra 00).
+function findNalStarts(buf) {
+  const starts = [];
+  for (let i = 0; i + 2 < buf.length; i++) {
+    if (buf[i] === 0 && buf[i + 1] === 0 && buf[i + 2] === 1) {
+      // The search pattern is the 3-byte code, but a 4-byte code begins one
+      // byte earlier. Reporting the 3-byte position would cut each picture
+      // after that leading zero, leaving it stranded on the end of the previous
+      // one - tolerated by decoders as trailing_zero_8bits, but it means the
+      // pieces no longer reconstruct the original stream exactly, and anything
+      // that checks totals is then quietly wrong.
+      const at = (i > 0 && buf[i - 1] === 0) ? i - 1 : i;
+      starts.push({ at, headerLen: i - at + 3, payload: i + 3 });
+      i += 2;
+    }
+  }
+  return starts;
+}
+
+// Does this NAL begin a new picture?
+function nalStartsPicture(buf, payloadAt, isHevc) {
+  if (payloadAt >= buf.length) return false;
+  if (isHevc) {
+    const type = (buf[payloadAt] >> 1) & 0x3f;
+    if (type > 31) return false;                       // non-VCL: parameter sets, SEI
+    if (payloadAt + 2 >= buf.length) return false;
+    return (buf[payloadAt + 2] & 0x80) !== 0;          // first_slice_segment_in_pic_flag
+  }
+  const type = buf[payloadAt] & 0x1f;
+  if (type !== 1 && type !== 5) return false;          // non-IDR / IDR slice
+  // first_mb_in_slice is a ue(v) at the start of the slice header; a leading 1
+  // bit means the value is 0, i.e. this slice starts the picture. Without this
+  // a multi-slice picture would be split into several "frames".
+  return payloadAt + 1 < buf.length && (buf[payloadAt + 1] & 0x80) !== 0;
+}
+
+// Is this an IRAP/IDR picture, i.e. can decoding start here?
+function nalIsKeyframe(buf, payloadAt, isHevc) {
+  if (payloadAt >= buf.length) return false;
+  if (isHevc) {
+    const type = (buf[payloadAt] >> 1) & 0x3f;
+    return type >= 16 && type <= 23;                   // BLA..CRA
+  }
+  return (buf[payloadAt] & 0x1f) === 5;
+}
+
+// Group an Annex-B stream into one buffer per picture, each carrying any
+// parameter sets that preceded it so the decoder can configure itself.
+function splitAnnexBPictures(buf, isHevc) {
+  const starts = findNalStarts(buf);
+  if (!starts.length) return [];
+  const bounds = [];
+  for (let i = 0; i < starts.length; i++) {
+    if (nalStartsPicture(buf, starts[i].payload, isHevc)) {
+      bounds.push({ idx: i, key: nalIsKeyframe(buf, starts[i].payload, isHevc) });
+    }
+  }
+  if (!bounds.length) return [];
+  const pics = [];
+  for (let b = 0; b < bounds.length; b++) {
+    // Start at the NAL after the previous picture ended, so parameter sets and
+    // SEI that sit between pictures travel with the picture they describe.
+    const fromNal = b === 0 ? 0 : bounds[b - 1].idx + 1;
+    const startByte = starts[fromNal].at;
+    const endByte = (b + 1 < bounds.length) ? starts[bounds[b + 1].idx].at : buf.length;
+    if (endByte > startByte) pics.push({ data: buf.subarray(startByte, endByte), key: bounds[b].key });
+  }
+  return pics;
+}
+
+// Extract the video track as Annex-B. A stream copy: nothing is decoded.
+async function extractAnnexB(ff, isHevc) {
+  const out = isHevc ? 'es.h265' : 'es.h264';
+  try { await ff.deleteFile(out); } catch(e) {}
+  ffLog = [];
+  await ff.exec(['-i', 'input.mp4', '-map', '0:v:0', '-c', 'copy',
+    '-bsf:v', isHevc ? 'hevc_mp4toannexb' : 'h264_mp4toannexb', '-f', isHevc ? 'hevc' : 'h264', out]);
+  const data = await ff.readFile(out);
+  try { await ff.deleteFile(out); } catch(e) {}
+  if (!data || !data.length) throw new Error('Could not extract the video track');
+  return data;
+}
+
+// CAN THE BROWSER DECODE FOR US, READABLY?
+//
+// This is the question that decides whether exports are seconds or minutes.
+//
+// ffmpeg decoding in WebAssembly runs at ~35fps on 1080p and is 80% of every
+// export. The browser's own decoder is native code and vastly faster - but a
+// HARDWARE-decoded frame comes back opaque (format === null) and its planes
+// cannot be read, which is why this app decodes with ffmpeg at all: the HDR
+// path has to reach the planes to blend captions into them.
+//
+// The part not yet tested: asking the browser for a SOFTWARE decode. Chrome's
+// software decoder is still native code - hugely faster than wasm - and unlike
+// the hardware path it is expected to hand back a real format like I420P10 that
+// copyTo() will accept. If that holds, the 80% disappears entirely and ffmpeg
+// is needed only for muxing.
+//
+// Probed rather than assumed, because this exact assumption (that a decoded
+// frame's planes are reachable) is what sent the whole pipeline through ffmpeg
+// in the first place.
+async function probeSoftwareDecodePlanes(codecs) {
+  const out = { tried: [], usable: false, format: null, accel: null, codec: null, why: '' };
+  if (typeof VideoDecoder === 'undefined') { out.why = 'no VideoDecoder'; return out; }
+  for (const codec of codecs) {
+    for (const accel of ['prefer-software', 'no-preference']) {
+      const cfg = { codec, codedWidth: 1920, codedHeight: 1080, hardwareAcceleration: accel };
+      try {
+        const sup = await withTimeout(VideoDecoder.isConfigSupported(cfg), 5000, 'decoder check');
+        out.tried.push(`${codec} ${accel}: ${sup && sup.supported ? 'supported' : 'no'}`);
+        if (sup && sup.supported && !out.usable) {
+          // Support is not the question - readable planes are. That can only be
+          // answered by decoding something, which needs a demuxer, so record the
+          // candidate and let the caller verify with real samples.
+          out.accel = accel; out.codec = codec; out.usable = true;
+        }
+      } catch(e) {
+        out.tried.push(`${codec} ${accel}: ${describeError(e)}`);
+      }
+    }
+  }
+  if (!out.usable) out.why = 'no software decode configuration accepted';
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// THE FAST HDR EXPORT: nothing decodes in WebAssembly.
+//
+// ffmpeg's only job is a stream copy to Annex-B at the start and a remux at the
+// end. Everything between runs on the GPU: the browser decodes, WebGPU
+// composites in extended range, the hardware encodes.
+//
+// FRAME ORDER. Chunks must be fed in DECODE order, which is what splitting the
+// elementary stream gives us, but with B-frames that is not presentation order.
+// The decoder reorders and emits in presentation order, so the timestamps we
+// attach going in would be wrong coming out. Rather than track the mapping,
+// output timestamps are simply counted as frames arrive - correct for constant
+// frame rate, which is what phone footage is and what the rest of this pipeline
+// already assumes.
+async function pickHdrDecoderCodec(w, h) {
+  const even = n => Math.max(2, n - (n % 2));
+  for (const codec of ['hvc1.2.4.L153.B0', 'hvc1.2.4.L150.B0', 'hvc1.2.4.L123.B0',
+                       'hev1.2.4.L153.B0', 'hvc1.1.6.L123.B0']) {
+    try {
+      const r = await withTimeout(VideoDecoder.isConfigSupported(
+        { codec, codedWidth: even(w), codedHeight: even(h) }), 5000, 'decoder check');
+      if (r && r.supported) return codec;
+    } catch(e) {}
+  }
+  return null;
+}
+
+// What does the GPU path actually produce, compared with ffmpeg?
+//
+// The brightness of the first GPU exports was wrong and I corrected it by
+// reasoning about what an external texture returns - twice, and it is still
+// wrong. Reasoning has run out of road: the WebGPU spec says samples come back
+// in the destination colour space, but what that means for an HLG BT.2020
+// source is exactly the thing in dispute.
+//
+// So measure it. ffmpeg decodes frame 0 the way the slow path always has, the
+// GPU composites the same frame, and the two mean luma values are compared. The
+// ratio says precisely how far off the assumption is, and in which direction -
+// which is one number, obtainable in one run, instead of another guess.
+// Mean plus the top of the distribution. The mean says whether brightness is
+// calibrated; the HIGHLIGHTS say whether this is HDR at all.
+//
+// If Chrome tone maps the HLG source down to SDR when importing it as an
+// external texture - and the only colour spaces that import accepts are srgb
+// and display-p3, both SDR - then the output is HDR-TAGGED SDR: correct-looking
+// mid-tones with the highlight range gone. That failure is nearly invisible in
+// a mean and obvious in a 99th percentile, which is why both are measured.
+function lumaStats(buf, w, h, stride) {
+  const vals = [];
+  let sum = 0;
+  for (let y = 0; y < h; y += 4) {
+    const row = y * stride;
+    for (let x = 0; x < w; x += 4) { const v = buf[row + x]; sum += v; vals.push(v); }
+  }
+  if (!vals.length) return { mean: 0, p99: 0, max: 0 };
+  vals.sort((a, b) => a - b);
+  return {
+    mean: sum / vals.length,
+    p99: vals[Math.floor(vals.length * 0.99)],
+    max: vals[vals.length - 1],
+  };
+}
+
+async function measureGpuLuma(ff, gpuNV12, w, h, yStride) {
+  const g = lumaStats(gpuNV12, w, h, yStride);
+  const gpuMean = g.mean;
+  let ffMean = null, ffStats = null;
+  try {
+    const name = 'lumaprobe.raw';
+    try { await ff.deleteFile(name); } catch(e) {}
+    ffLog = [];
+    await ff.exec(['-threads', '1', '-i', 'input.mp4', '-frames:v', '1',
+      '-vf', 'format=yuv420p', '-f', 'rawvideo', '-pix_fmt', 'yuv420p', name]);
+    const raw = await ff.readFile(name);
+    try { await ff.deleteFile(name); } catch(e) {}
+    if (raw && raw.length >= w * h) {
+      ffStats = lumaStats(raw, w, h, w);
+      ffMean = ffStats.mean;
+    }
+  } catch(e) { console.warn('luma probe failed', describeError(e)); }
+  _lumaCheck = {
+    gpuMean, ffMean, ratio: ffMean ? gpuMean / ffMean : null,
+    gpu: g, ff: ffStats,
+    // The decisive comparison: the source's brightest 1% against ours. If ours
+    // is markedly lower, the highlights were tone mapped away before we ever
+    // saw them and this is not really an HDR export.
+    highlightRatio: ffStats && ffStats.p99 > 16 ? (g.p99 - 16) / (ffStats.p99 - 16) : null,
+  };
+  console.log(`Luma check — GPU mean ${gpuMean.toFixed(1)} p99 ${g.p99} max ${g.max}` +
+    (ffStats ? `; ffmpeg mean ${ffStats.mean.toFixed(1)} p99 ${ffStats.p99} max ${ffStats.max}` +
+               `; mean ratio ${(gpuMean / ffMean).toFixed(3)}, highlight ratio ${_lumaCheck.highlightRatio.toFixed(3)}`
+             : '; ffmpeg reference unavailable'));
+  return _lumaCheck;
+}
+
+async function exportHdrViaWebGPU({ ff, info, encoderCodec, fps, mode = 'hdr', onProgress }) {
+  const w = vW - (vW % 2), h = vH - (vH % 2);
+  const isHevc = true;
+  const decCodec = await pickHdrDecoderCodec(w, h);
+  if (!decCodec) throw new Error('No hardware decoder configuration for this source');
+
+  const es = await perfTime('extract', () => extractAnnexB(ff, isHevc));
+  const pics = await perfTime('split', () => Promise.resolve(splitAnnexBPictures(es, isHevc)));
+  if (!pics.length) throw new Error('Could not find any pictures in the video track');
+
+  // A rotated source is stored with its coded dimensions swapped, so the output
+  // canvas is the DISPLAY size and the shader reads the source rotated.
+  const rot = info.rotation || 0;
+  const comp = await perfTime('gpu setup', () => createHdrCompositor(w, h, rot, mode));
+  const sdr = mode === 'sdr';
+  // SDR skips the GPU->CPU readback entirely when a canvas target exists.
+  let useCanvasPath = sdr && comp.hasCanvas;
+  if (useCanvasPath) console.log('SDR: compositing straight to a canvas, no readback');
+  const frameColor = sdr
+    ? { primaries: 'bt709', transfer: 'bt709', matrix: 'bt709', fullRange: false }
+    : { primaries: 'bt2020', transfer: info.hdrTrc === 'smpte2084' ? 'pq' : 'hlg',
+        matrix: 'bt2020-ncl', fullRange: false };
+  const encoded = [];
+  let outIndex = 0, aborted = false;
+  // ONE error wins, and it is the first. Teardown closes the codecs, and any
+  // work still in flight then fails with "Cannot call 'encode' on a closed
+  // codec" - which is a CONSEQUENCE, not a cause, and it masked the real
+  // failure on the last run. Only the first error is kept, and errors raised
+  // after teardown begins are discarded entirely.
+  let firstError = null;
+  const fail = e => { if (!firstError && !aborted && e) firstError = e; };
+
+  const encoder = new VideoEncoder({
+    output: c => { const b = new Uint8Array(c.byteLength); c.copyTo(b); encoded.push(b); },
+    error: e => { fail(e); },
+  });
+  encoder.configure({
+    codec: encoderCodec, width: w, height: h, framerate: fps,
+    bitrate: Math.round(w * h * fps * 0.12), latencyMode: 'quality',
+    // Annex-B for whichever family this is. Asking for it only under `hevc`
+    // left H.264 on its default, which is length-prefixed AVCC - and feeding
+    // AVCC bytes to ffmpeg's Annex-B demuxer fails at the header with
+    // "incorrect codec parameters", after the GPU has done all the work.
+    avc: /^avc1/.test(encoderCodec) ? { format: 'annexb' } : undefined,
+    hevc: /^(hvc1|hev1)/.test(encoderCodec) ? { format: 'annexb' } : undefined,
+  });
+
+  // The decoder's output callback is synchronous, but compositing has to await
+  // the GPU before releasing each frame. So frames go onto a queue and a single
+  // async pump drains it in order - which also keeps encode order correct.
+  const queue = [];
+  let pumping = false;
+  async function pump() {
+    if (pumping) return;
+    pumping = true;
+    try {
+      while (queue.length) {
+        const frame = queue.shift();
+        // Once teardown has begun, drain without touching the codecs.
+        if (aborted || firstError) { frame.close(); outIndex++; continue; }
+        try {
+          // Each step is labelled, because "it failed" three stages deep costs a
+          // whole test cycle to localise.
+          const cap = captionCanvasAt(outIndex / fps);
+          const t0 = performance.now();
+          let nv12 = null, out = null;
+          try {
+            comp.setCaptions(cap.canvas, cap.key);
+            if (useCanvasPath) {
+              await comp.renderToCanvas(frame);
+              try {
+                out = new VideoFrame(comp.canvas, {
+                  timestamp: Math.round(outIndex * 1e6 / fps),
+                  duration: Math.round(1e6 / fps),
+                });
+              } catch(e) {
+                // Refused. Drop to readback for the rest of the export rather
+                // than losing everything already done.
+                console.warn('Canvas frames refused, switching to readback:', describeError(e));
+                useCanvasPath = false;
+              }
+            }
+            if (!out) nv12 = await comp.render(frame);
+          } catch(e) { throw new Error('GPU compositing: ' + describeError(e)); }
+          perfAdd('composite', performance.now() - t0, 1);
+          // Needs the planes, and exists to check HDR, so skipped on the canvas path.
+          if (outIndex === 0 && !sdr && nv12) {
+            try { await measureGpuLuma(ff, nv12, w, h, comp.layout.yStride); } catch(e) {}
+          }
+          try {
+            if (out) { /* built from the canvas above */ } else
+            // A buffer-backed frame can state its colour space, which a canvas
+            // one cannot - so the encoder is told exactly what it is receiving
+            // rather than guessing BT.709 and being silently wrong.
+            out = new VideoFrame(nv12, {
+              format: 'NV12', codedWidth: w, codedHeight: h,
+              layout: [
+                { offset: 0, stride: comp.layout.yStride },
+                { offset: comp.layout.uvOffset, stride: comp.layout.uvStride },
+              ],
+              colorSpace: frameColor,
+              timestamp: Math.round(outIndex * 1e6 / fps),
+              duration: Math.round(1e6 / fps),
+            });
+          } catch(e) { throw new Error('building an NV12 frame for the encoder: ' + describeError(e)); }
+          try {
+            const t1 = performance.now();
+            encoder.encode(out, { keyFrame: outIndex % Math.round(fps * 2) === 0 });
+            perfAdd('encode', performance.now() - t1, 1);
+          } catch(e) { throw new Error('hardware encode of the composited frame: ' + describeError(e)); }
+          finally { out.close(); }
+        } catch(e) { fail(e); }
+        finally { frame.close(); outIndex++; if (onProgress) onProgress(outIndex / pics.length); }
+      }
+    } finally { pumping = false; }
+  }
+
+  const decoder = new VideoDecoder({
+    error: e => { fail(e); },
+    output: frame => { queue.push(frame); pump(); },
+  });
+  // Coded dimensions are the STORED ones, which a rotated source has swapped.
+  const codedW = (rot === 90 || rot === 270) ? h : w;
+  const codedH = (rot === 90 || rot === 270) ? w : h;
+  decoder.configure({ codec: decCodec, codedWidth: codedW, codedHeight: codedH, hardwareAcceleration: 'no-preference' });
+
+  try {
+    await perfTime('decode', async () => {
+      for (let i = 0; i < pics.length; i++) {
+        if (firstError) break;
+        decoder.decode(new EncodedVideoChunk({
+          type: pics[i].key ? 'key' : 'delta',
+          timestamp: Math.round(i * 1e6 / fps),
+          duration: Math.round(1e6 / fps),
+          data: pics[i].data,
+        }));
+        // Keep the decoder fed but not flooded; each queued frame holds GPU memory.
+        while (decoder.decodeQueueSize > 8 || encoder.encodeQueueSize > 8 || queue.length > 8) {
+          await new Promise(r => setTimeout(r, 0));
+        }
+      }
+      if (!firstError) await decoder.flush();
+      // flush() only guarantees every frame has been EMITTED; the pump may still
+      // be compositing the last of them.
+      while (queue.length || pumping) await new Promise(r => setTimeout(r, 0));
+    }, pics.length);
+    if (!firstError) await perfTime('encode', () => encoder.flush());
+  } catch(e) {
+    fail(e);
+  } finally {
+    // Drain BEFORE closing anything, so in-flight work never meets a closed
+    // codec and generates a misleading second error.
+    aborted = true;
+    try { while (queue.length || pumping) await new Promise(r => setTimeout(r, 0)); } catch(e) {}
+    try { if (decoder.state !== 'closed') decoder.close(); } catch(e) {}
+    try { if (encoder.state !== 'closed') encoder.close(); } catch(e) {}
+    comp.destroy();
+  }
+  if (firstError) throw firstError;
+  if (!encoded.length) throw new Error('The encoder returned no data');
+
+  const plan = hdrOutputPlan(encoderCodec);
+  await ff.writeFile(plan.file, concatChunks(encoded));
+  const outName = getOutName() + (sdr ? '_captioned.mp4' : '_captioned_hdr.mp4');
+  const muxInfo = sdr ? { ...info, hdrTrc: null } : info;
+  // Mux at the rate the frames THEMSELVES imply. If the reported rate was
+  // wrong, or the source was variable-rate, this still lands the video on the
+  // source's duration - which is what keeps it against the copied audio.
+  const muxFps = (vDur > 0 && outIndex > 1) ? (outIndex / vDur) : fps;
+  if (Math.abs(muxFps - fps) > 0.01) {
+    console.log(`Muxing at ${muxFps.toFixed(3)} fps (${outIndex} frames over ${vDur.toFixed(2)}s) rather than the reported ${fps}`);
+  }
+  let r = await perfTime('mux', () => runEncode(ff, sdrOrHdrRemuxArgs(plan, muxInfo, muxFps, !!info.hasAudio, sdr, false), outName));
+  if (!r.ok) {
+    console.warn('Mux with colour tagging failed, retrying without it:', r.reason);
+    r = await perfTime('mux', () => runEncode(ff, sdrOrHdrRemuxArgs(plan, muxInfo, muxFps, !!info.hasAudio, sdr, true), outName));
+  }
+  if (!r.ok) throw new Error('Muxing failed: ' + r.reason);
+  const data = await ff.readFile(outName);
+  const outInfo = await perfTime('verify', () => probeInput(ff, outName));
+  try { await ff.deleteFile(plan.file); } catch(e) {}
+  try { await ff.deleteFile(outName); } catch(e) {}
+  return { data, outName, outInfo, frames: outIndex };
+}
+
+// ---------------------------------------------------------------------------
+// HDR COMPOSITING ON THE GPU.
+//
+// The fast HDR pipeline: hardware-decode a frame, hand it to WebGPU as an
+// external texture, draw it plus the captions into an extended-range canvas,
+// take a VideoFrame back out and give it to the hardware encoder. ffmpeg never
+// touches a pixel, so HDR export runs at the same speed as SDR instead of at
+// the ~35fps ceiling of decoding in WebAssembly.
+//
+// THE COLOUR HANDOFF, which is the whole difficulty.
+//
+// A WebGPU canvas is extended-range sRGB. The encoder needs BT.2020/HLG. And
+// `new VideoFrame(canvas)` accepts no colorSpace - there is nowhere to say what
+// the pixels mean. So the encoder will convert whatever we draw using its own
+// BT.709 assumption, and drawing HLG values would simply be misread.
+//
+// The trick is the same one used for drawtext: if a fixed transform is going to
+// be applied whatever we do, apply its INVERSE first so the two cancel. The
+// shader computes the BT.2020 HLG Y'CbCr it wants the encoder to emit, then
+// converts that back to RGB through the inverse of BT.709 - so when the encoder
+// runs its BT.709 RGB->YUV, the result is exactly the BT.2020 HLG Y'CbCr we
+// intended. The container is then tagged with the bitstream filter that already
+// exists, and the file is honest about what it holds.
+//
+// Captions are drawn at 1.0, which is SDR white in extended range - the same
+// 203-nit reference white the plane compositor uses, arrived at differently.
+// The shader now produces NV12 directly rather than painting into the canvas.
+//
+// Why: a hardware encoder refuses a VideoFrame sourced from an rgba16float
+// canvas - measured, it errors on the second frame. And `new VideoFrame(canvas)`
+// accepts no colorSpace, so even if it were accepted there was no way to say the
+// pixels were BT.2020/HLG. Rendering Y and interleaved CbCr into two textures
+// and reading those back solves both: a buffer-backed VideoFrame takes an
+// explicit colorSpace, and NV12 is the format hardware encoders most want.
+//
+// It also deletes the inverse-BT.709 trick. Nothing downstream converts colour
+// any more, so there is no fixed transform left to cancel - the shader simply
+// writes the values it means.
+//
+// Readback is 1.5 bytes per pixel (~3.1 MB at 1080p) instead of the 8 bytes per
+// pixel an rgba16float canvas would have cost.
+const HDR_COMPOSITE_WGSL = `
+struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+
+@vertex fn vs(@builtin(vertex_index) i: u32) -> VSOut {
+  var p = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  var out: VSOut;
+  out.pos = vec4f(p[i], 0.0, 1.0);
+  out.uv = vec2f((p[i].x + 1.0) * 0.5, 1.0 - (p[i].y + 1.0) * 0.5);
+  return out;
+}
+
+@group(0) @binding(0) var samp: sampler;
+@group(0) @binding(1) var vid: texture_external;
+@group(0) @binding(2) var cap: texture_2d<f32>;
+
+// Which way the source was shot. iPhone footage is stored landscape with a
+// rotation matrix in the container; extracting the elementary stream discards
+// it, so the rotation is re-applied here instead of being lost.
+override ROT: i32 = 0;
+
+fn srcUV(uv: vec2f) -> vec2f {
+  if (ROT == 90)  { return vec2f(uv.y, 1.0 - uv.x); }
+  if (ROT == 180) { return vec2f(1.0 - uv.x, 1.0 - uv.y); }
+  if (ROT == 270) { return vec2f(1.0 - uv.y, uv.x); }
+  return uv;
+}
+
+// An external texture is sampled in the sRGB colour space - the values come
+// back ENCODED, not linear. Feeding them to a matrix that expects linear light
+// is what made the first export come out lighter than the source: the sRGB
+// curve lifts mid-tones, and treating that lift as if it were light applies it
+// twice. The extended form below keeps the same curve beyond 1.0, which is
+// where the HDR headroom lives, and mirrors it through zero.
+fn srgbToLinear(c: f32) -> f32 {
+  let a = abs(c);
+  let l = select(a / 12.92, pow((a + 0.055) / 1.055, 2.4), a > 0.04045);
+  return select(-l, l, c >= 0.0);
+}
+
+fn to2020(c: vec3f) -> vec3f {
+  return vec3f(
+    dot(c, vec3f(0.6274039, 0.3292830, 0.0433131)),
+    dot(c, vec3f(0.0690973, 0.9195404, 0.0113623)),
+    dot(c, vec3f(0.0163914, 0.0880132, 0.8955953)));
+}
+
+fn hlgOetf(e: f32) -> f32 {
+  let x = max(e, 0.0);
+  if (x <= 1.0 / 12.0) { return sqrt(3.0 * x); }
+  return 0.17883277 * log(12.0 * x - 0.28466892) + 0.55991073;
+}
+
+// Video + captions, as BT.2020 HLG encoded R'G'B'.
+fn composite(uv: vec2f) -> vec3f {
+  let src = textureSampleBaseClampToEdge(vid, samp, srcUV(uv));
+  let cp  = textureSample(cap, samp, uv);
+  let lin = vec3f(srgbToLinear(src.r), srgbToLinear(src.g), srgbToLinear(src.b));
+  let d = to2020(lin) * 0.2032;
+  let ys = max(dot(d, vec3f(0.2627, 0.6780, 0.0593)), 1e-6);
+  let scene = d / pow(ys, 0.2 / 1.2);
+  var e = vec3f(hlgOetf(scene.r), hlgOetf(scene.g), hlgOetf(scene.b));
+  // Captions sit at HLG 0.75 - diffuse white, 203 nits - not at peak.
+  return mix(e, cp.rgb * 0.75, vec3f(cp.a));
+}
+
+// SDR path. The samples arrive sRGB-encoded and already tone mapped by the
+// browser, which for an SDR deliverable is the finished picture - so this only
+// has to convert to BT.709 Y'CbCr. sRGB and BT.709 share primaries and their
+// transfer functions differ by less than a code value, so no transfer work is
+// needed. Captions go at full white here, not at 0.75: in SDR, white IS white.
+fn compositeSdr(uv: vec2f) -> vec3f {
+  let src = textureSampleBaseClampToEdge(vid, samp, srcUV(uv));
+  let cp  = textureSample(cap, samp, uv);
+  return mix(clamp(src.rgb, vec3f(0.0), vec3f(1.0)), cp.rgb, vec3f(cp.a));
+}
+
+// SDR straight to a canvas: no Y'CbCr here, no readback. The encoder does its
+// own BT.709 conversion from RGB, which is exactly the output wanted, so the
+// whole GPU->CPU round trip disappears.
+@fragment fn fsRGB(in: VSOut) -> @location(0) vec4f {
+  return vec4f(compositeSdr(in.uv), 1.0);
+}
+
+@fragment fn fsY709(in: VSOut) -> @location(0) vec4f {
+  let e = compositeSdr(in.uv);
+  let yp = dot(e, vec3f(0.2126, 0.7152, 0.0722));
+  return vec4f((16.0 + 219.0 * clamp(yp, 0.0, 1.0)) / 255.0, 0.0, 0.0, 1.0);
+}
+
+@fragment fn fsUV709(in: VSOut) -> @location(0) vec4f {
+  let e = compositeSdr(in.uv);
+  let yp = dot(e, vec3f(0.2126, 0.7152, 0.0722));
+  let cb = (e.b - yp) / 1.8556;
+  let cr = (e.r - yp) / 1.5748;
+  return vec4f((128.0 + 224.0 * clamp(cb, -0.5, 0.5)) / 255.0,
+               (128.0 + 224.0 * clamp(cr, -0.5, 0.5)) / 255.0, 0.0, 1.0);
+}
+
+// Limited range, the same endpoints the rest of the pipeline uses.
+@fragment fn fsY(in: VSOut) -> @location(0) vec4f {
+  let e = composite(in.uv);
+  let yp = dot(e, vec3f(0.2627, 0.6780, 0.0593));
+  return vec4f((16.0 + 219.0 * clamp(yp, 0.0, 1.0)) / 255.0, 0.0, 0.0, 1.0);
+}
+
+@fragment fn fsUV(in: VSOut) -> @location(0) vec4f {
+  let e = composite(in.uv);
+  let yp = dot(e, vec3f(0.2627, 0.6780, 0.0593));
+  let cb = (e.b - yp) / 1.8814;
+  let cr = (e.r - yp) / 1.4746;
+  return vec4f((128.0 + 224.0 * clamp(cb, -0.5, 0.5)) / 255.0,
+               (128.0 + 224.0 * clamp(cr, -0.5, 0.5)) / 255.0, 0.0, 1.0);
+}
+`;
+
+const align256 = n => Math.ceil(n / 256) * 256;
+
+async function createHdrCompositor(w, h, rotation = 0, mode = 'hdr') {
+  if (!navigator.gpu) throw new Error('no WebGPU');
+  const adapter = await withTimeout(navigator.gpu.requestAdapter(), 8000, 'GPU adapter');
+  if (!adapter) throw new Error('no GPU adapter');
+  const device = await withTimeout(adapter.requestDevice(), 8000, 'GPU device');
+  const module = device.createShaderModule({ code: HDR_COMPOSITE_WGSL });
+  // srcUV maps DISPLAY coordinates back to STORED ones, so it needs the INVERSE
+  // of the container's rotation. Applying the rotation directly left the picture
+  // 180 degrees out - correct axis, wrong direction.
+  const want = ((Math.round(rotation / 90) * 90) % 360 + 360) % 360;
+  const rot = (360 - want) % 360;
+  const mk = (entryPoint, format) => device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module, entryPoint: 'vs' },
+    fragment: { module, entryPoint, targets: [{ format }], constants: { ROT: rot } },
+    primitive: { topology: 'triangle-list' },
+  });
+  const sdr = mode === 'sdr';
+  const pipeY = mk(sdr ? 'fsY709' : 'fsY', 'r8unorm');
+  const pipeUV = mk(sdr ? 'fsUV709' : 'fsUV', 'rg8unorm');
+  // SDR also gets a canvas target. Built ALONGSIDE the plane path, not instead
+  // of it: an encoder refusing a canvas-sourced frame is exactly what killed the
+  // HDR attempt, so this can fall back mid-export rather than losing the run.
+  let canvas = null, canvasCtx = null, pipeRGB = null;
+  if (sdr) {
+    try {
+      canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvasCtx = canvas.getContext('webgpu');
+      const fmt = navigator.gpu.getPreferredCanvasFormat
+        ? navigator.gpu.getPreferredCanvasFormat() : 'bgra8unorm';
+      canvasCtx.configure({ device, format: fmt, alphaMode: 'opaque' });
+      pipeRGB = mk('fsRGB', fmt);
+    } catch(e) {
+      console.warn('No SDR canvas target; using the readback path:', e && e.message);
+      canvas = null; canvasCtx = null; pipeRGB = null;
+    }
+  }
+  const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+  const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC;
+  const texY = device.createTexture({ size: [w, h], format: 'r8unorm', usage });
+  const texUV = device.createTexture({ size: [w >> 1, h >> 1], format: 'rg8unorm', usage });
+  const capTex = device.createTexture({
+    size: [w, h], format: 'rgba8unorm',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+  // copyTextureToBuffer demands rows aligned to 256 bytes, so the planes are
+  // padded. VideoFrame accepts explicit strides, so the padding costs nothing
+  // but address arithmetic.
+  const yStride = align256(w), uvStride = align256(w);
+  const uvOffset = yStride * h;
+  const total = uvOffset + uvStride * (h >> 1);
+  // A SINGLE read buffer forces a full GPU->CPU stall every frame: map, copy,
+  // unmap, and only then can the next frame be rendered into it. A small ring
+  // lets the GPU work ahead while the previous frame is being read.
+  const RING = 3;
+  const readBufs = [];
+  for (let i = 0; i < RING; i++) {
+    readBufs.push(device.createBuffer({ size: total, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ }));
+  }
+  let ringAt = 0;
+  let capKey = null;
+
+  const drawTo = (enc, pipeline, view, bind) => {
+    const pass = enc.beginRenderPass({
+      colorAttachments: [{ view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }],
+    });
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bind);
+    pass.draw(3);
+    pass.end();
+  };
+
+  return {
+    device, canvas, hasCanvas: !!pipeRGB, layout: { yStride, uvStride, uvOffset, total },
+    // Composite straight into the canvas - nothing comes back to the CPU.
+    async renderToCanvas(frame) {
+      const external = device.importExternalTexture({ source: frame });
+      const bind = device.createBindGroup({
+        layout: pipeRGB.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: external },
+          { binding: 2, resource: capTex.createView() },
+        ],
+      });
+      const enc = device.createCommandEncoder();
+      drawTo(enc, pipeRGB, canvasCtx.getCurrentTexture().createView(), bind);
+      device.queue.submit([enc.finish()]);
+      return device.queue.onSubmittedWorkDone();
+    },
+    setCaptions(source, key) {
+      if (key === capKey) return;
+      capKey = key;
+      if (!source) {
+        const zero = new Uint8Array(w * 4);
+        for (let y = 0; y < h; y++) {
+          device.queue.writeTexture({ texture: capTex, origin: { x: 0, y, z: 0 } },
+            zero, { bytesPerRow: w * 4 }, { width: w, height: 1 });
+        }
+        return;
+      }
+      device.queue.copyExternalImageToTexture({ source }, { texture: capTex }, [w, h]);
+    },
+    // Composite one frame and return it as NV12 bytes.
+    async render(frame) {
+      const external = device.importExternalTexture({ source: frame });
+      const bindFor = pipeline => device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: external },
+          { binding: 2, resource: capTex.createView() },
+        ],
+      });
+      const enc = device.createCommandEncoder();
+      drawTo(enc, pipeY, texY.createView(), bindFor(pipeY));
+      drawTo(enc, pipeUV, texUV.createView(), bindFor(pipeUV));
+      const buf = readBufs[ringAt]; ringAt = (ringAt + 1) % RING;
+      enc.copyTextureToBuffer({ texture: texY }, { buffer: buf, bytesPerRow: yStride }, [w, h]);
+      enc.copyTextureToBuffer({ texture: texUV },
+        { buffer: buf, offset: uvOffset, bytesPerRow: uvStride }, [w >> 1, h >> 1]);
+      device.queue.submit([enc.finish()]);
+      // Only after this has resolved is the source frame safe to close.
+      await buf.mapAsync(GPUMapMode.READ);
+      const bytes = new Uint8Array(buf.getMappedRange().slice(0));
+      buf.unmap();
+      return bytes;
+    },
+    destroy() {
+      try { texY.destroy(); texUV.destroy(); capTex.destroy();
+            readBufs.forEach(b => b.destroy()); device.destroy(); } catch(e) {}
+    },
+  };
+}
+
+// THE FOURTH SURFACE: WebGPU.
+//
+// Canvas 2D and WebGL both refused rec2100-hlg on this machine, and I treated
+// that as "no HDR compositing here". That was premature. Chrome 129 shipped HDR
+// for WebGPU through a DIFFERENT mechanism - not a PredefinedColorSpace on the
+// drawing buffer, but a canvas configured as rgba16float with
+// toneMapping: { mode: "extended" }, which lifts the clamp to SDR range. It can
+// be present when the other two are not.
+//
+// If it is, the HDR pipeline changes completely: hardware-decode the video,
+// import each frame as an external texture, draw it plus the captions into an
+// extended-range canvas, take a VideoFrame back out and hand it to the hardware
+// encoder. No ffmpeg in the video path, so HDR export becomes as fast as SDR.
+// That is the difference between roughly realtime and near-instant.
+//
+// getConfiguration() is read back rather than trusting configure() to have
+// honoured the request, for the same reason the 2D probe reads back its colour
+// space: asking is not getting.
+async function probeWebgpuHdr() {
+  const out = { ok: false, granted: null, format: null, externalTexture: false, why: '' };
+  try {
+    if (!navigator.gpu) { out.why = 'no WebGPU in this browser'; return out; }
+    const adapter = await withTimeout(navigator.gpu.requestAdapter(), 8000, 'requesting a GPU adapter');
+    if (!adapter) { out.why = 'no GPU adapter available'; return out; }
+    const device = await withTimeout(adapter.requestDevice(), 8000, 'requesting a GPU device');
+    if (!device) { out.why = 'the GPU adapter would not provide a device'; return out; }
+    out.externalTexture = typeof device.importExternalTexture === 'function';
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 8;
+    const ctx = cv.getContext('webgpu');
+    if (!ctx) { out.why = 'no webgpu canvas context'; return out; }
+    ctx.configure({ device, format: 'rgba16float', alphaMode: 'opaque', toneMapping: { mode: 'extended' } });
+    const cfg = typeof ctx.getConfiguration === 'function' ? ctx.getConfiguration() : null;
+    out.granted = cfg && cfg.toneMapping ? cfg.toneMapping.mode : null;
+    out.format = cfg ? cfg.format : null;
+    out.ok = out.granted === 'extended' && out.externalTexture;
+    if (!out.ok && !out.why) {
+      out.why = out.granted !== 'extended'
+        ? 'extended tone mapping not granted (got ' + (out.granted || 'nothing') + ')'
+        : 'no importExternalTexture, so decoded frames cannot be drawn';
+    }
+  } catch(e) { out.why = describeError(e); }
+  return out;
+}
+
 // The third route, and the one that needs the least from the browser.
 //
 // Routes one and two both depend on getting HDR pixels OUT of the browser's own
@@ -3271,17 +6034,27 @@ function probeWebglHdr(space) {
 // config, not about whether the encoder will accept a 10-bit HLG frame. So this
 // builds a real I420P10 frame tagged BT.2020/HLG, pushes it through a real
 // encoder, and checks that actual bytes come back.
-async function probeConstructAndEncode(codec) {
-  const res = { codec, construct: false, encode: false, bytes: 0, why: '' };
-  const w = 64, h = 64, ySize = w * h, cSize = (w / 2) * (h / 2);
+async function probeConstructAndEncode(codec, accel, depth = 10) {
+  const res = { codec, accel, depth, construct: false, encode: false, bytes: 0, why: '' };
+  // 320x192, not something tiny. Hardware encoders enforce minimum dimensions -
+  // this machine's AV1 encoder will not go below 256x128 - so a 64x64 test frame
+  // fails for reasons that have nothing to do with 10-bit support, and reads as
+  // "codec unavailable" when the codec is fine.
+  const w = 320, h = 192, ySize = w * h, cSize = (w / 2) * (h / 2);
   let frame = null, enc = null;
   try {
-    const buf = new Uint8Array((ySize + 2 * cSize) * 2);
-    const dv = new DataView(buf.buffer);
-    for (let i = 0; i < ySize; i++) dv.setUint16(i * 2, 600, true);            // mid grey
-    for (let i = 0; i < 2 * cSize; i++) dv.setUint16((ySize + i) * 2, 512, true); // neutral
+    const bytesPer = depth > 8 ? 2 : 1;
+    const buf = new Uint8Array((ySize + 2 * cSize) * bytesPer);
+    if (bytesPer === 2) {
+      const dv = new DataView(buf.buffer);
+      for (let i = 0; i < ySize; i++) dv.setUint16(i * 2, 600, true);            // mid grey
+      for (let i = 0; i < 2 * cSize; i++) dv.setUint16((ySize + i) * 2, 512, true); // neutral
+    } else {
+      buf.fill(150, 0, ySize);
+      buf.fill(128, ySize);
+    }
     frame = new VideoFrame(buf, {
-      format: 'I420P10', codedWidth: w, codedHeight: h, timestamp: 0,
+      format: depth > 8 ? 'I420P10' : 'I420', codedWidth: w, codedHeight: h, timestamp: 0,
       colorSpace: { primaries: 'bt2020', transfer: 'hlg', matrix: 'bt2020-ncl', fullRange: false },
     });
     res.construct = true;
@@ -3290,9 +6063,11 @@ async function probeConstructAndEncode(codec) {
     const chunks = [];
     let encErr = '';
     enc = new VideoEncoder({ output: c => chunks.push(c), error: e => { encErr = e.message || String(e); } });
-    enc.configure({ codec, width: w, height: h, bitrate: 1e6, framerate: 30 });
+    enc.configure({ codec, width: w, height: h, bitrate: 1e6, framerate: 30,
+                    ...(accel ? { hardwareAcceleration: accel } : {}) });
     enc.encode(frame, { keyFrame: true });
-    await enc.flush();
+    // flush() is where a wedged hardware encoder stops answering entirely.
+    await withTimeout(enc.flush(), 8000, 'encoder flush');
     res.bytes = chunks.reduce((n, c) => n + (c.byteLength || 0), 0);
     res.encode = res.bytes > 0;
     if (!res.encode) res.why = encErr || 'encoder accepted the frame but produced no data';
@@ -3313,7 +6088,7 @@ async function probeHdrExport() {
       configureHighDynamicRange: typeof HTMLCanvasElement !== 'undefined' &&
         typeof HTMLCanvasElement.prototype.configureHighDynamicRange === 'function',
     },
-    decode: [], encode: [], families: [], canvas: [], webgl: [], build: [], frame: null, notes: [],
+    decode: [], encode: [], families: [], canvas: [], webgl: [], build: [], frame: null, notes: [], swDecode: null, webgpu: null,
   };
   if (!r.api.VideoEncoder || !r.api.VideoDecoder) {
     r.notes.push('WebCodecs is not available in this browser, so HDR export is not possible here at all.');
@@ -3329,17 +6104,29 @@ async function probeHdrExport() {
     try { const res = await cls.isConfigSupported(cfg); return !!(res && res.supported); }
     catch(e) { return false; }
   };
+  // A GPU can lack a depth its browser's SOFTWARE encoder has. This machine
+  // encodes AV1 but not 10-bit HEVC in hardware, and Chrome ships software VP9
+  // and AV1 encoders, so asking only the default (hardware-preferring) path can
+  // miss a working configuration. Ask both, and remember which one answered -
+  // software encoding is far slower, which the caller needs to know.
+  const ACCEL = ['no-preference', 'prefer-software'];
   for (const fam of HDR_CODEC_FAMILIES) {
     const f = { label: fam.label, licence: fam.licence, container: fam.container,
-                delivery: fam.delivery, encode: null, decode: null, tried: fam.candidates.length };
-    for (const codec of fam.candidates) {
-      if (!f.encode && await supported(VideoEncoder, { codec, width: even(w), height: even(h), bitrate: 12e6, framerate: 30 })) f.encode = codec;
-      if (!f.decode && await supported(VideoDecoder, { codec, codedWidth: even(w), codedHeight: even(h) })) f.decode = codec;
-      if (f.encode && f.decode) break;
+                delivery: fam.delivery, depth: fam.depth, encode: null, decode: null, accel: null,
+                tried: fam.candidates.length * ACCEL.length };
+    for (const accel of ACCEL) {
+      for (const codec of fam.candidates) {
+        if (!f.encode && await supported(VideoEncoder, { codec, width: even(w), height: even(h), bitrate: 12e6, framerate: 30, hardwareAcceleration: accel })) {
+          f.encode = codec; f.accel = accel;
+        }
+        if (!f.decode && await supported(VideoDecoder, { codec, codedWidth: even(w), codedHeight: even(h) })) f.decode = codec;
+        if (f.encode) break;
+      }
+      if (f.encode) break;
     }
     r.families.push(f);
     // Keep the flat lists the rest of the probe and the UI already speak.
-    r.encode.push({ label: fam.label, licence: fam.licence, codec: f.encode || fam.candidates[0], ok: !!f.encode, why: f.encode ? '' : 'no level accepted' });
+    r.encode.push({ label: fam.label, licence: fam.licence, depth: fam.depth, codec: f.encode || fam.candidates[0], ok: !!f.encode, why: f.encode ? '' : 'no level accepted' });
     r.decode.push({ label: fam.label, licence: fam.licence, codec: f.decode || fam.candidates[0], ok: !!f.decode, why: '' });
   }
 
@@ -3358,10 +6145,15 @@ async function probeHdrExport() {
   }
 
   for (const space of ['rec2100-hlg', 'rec2100-pq']) r.webgl.push(probeWebglHdr(space));
+  r.webgpu = await probeWebgpuHdr();
+  // The speed question, kept next to the capability questions.
+  r.swDecode = await probeSoftwareDecodePlanes(
+    r.families.filter(f => f.decode).map(f => f.decode).concat(['hvc1.2.4.L153.B0']));
 
   // Build-our-own-frame route, tested against every codec that claimed support.
   for (const e of r.encode.filter(x => x.ok)) {
-    r.build.push({ ...e, ...(await probeConstructAndEncode(e.codec)) });
+    const fam = r.families.find(x => x.label === e.label) || {};
+    r.build.push({ ...e, ...(await probeConstructAndEncode(e.codec, fam.accel, fam.depth || 10)) });
   }
 
   // The decisive test: take a real frame from the loaded video and see what we
@@ -3406,12 +6198,20 @@ async function probeHdrExport() {
   if (r.frame && r.frame.copyTo)      r.routes.push({ id: 'planes', label: 'blend into the decoded frame planes (video passes through untouched)' });
   if (r.canvas.some(c => c.ok))       r.routes.push({ id: 'canvas2d', label: 'composite on an HDR 2D canvas' });
   if (r.webgl.some(c => c.ok))        r.routes.push({ id: 'webgl',   label: 'composite on an HDR WebGL2 canvas' });
+  // Deliberately NOT listed as an HDR compositing route. Extended range on the
+  // canvas is real, but importExternalTexture only accepts SDR colour spaces,
+  // so the browser tone maps an HDR source on the way in and the shader never
+  // sees the range - measured on a real clip, everything arrived clamped to SDR
+  // white. It is used for the SDR export instead, where that is exactly right.
   // Prefer a codec the destination will actually accept as HDR over one that
   // merely encodes: a perfect VP9/WebM file that Instagram re-encodes to SDR is
   // worth less than an HEVC one it ingests.
-  const rank = b => (b.label.startsWith('HEVC') ? 0 : b.label.startsWith('AV1') ? 1 : 2);
+  // 10-bit and MP4 first; 8-bit HEVC is real HDR that Instagram ingests but can
+  // band, so it sits below AV1 and above the WebM-only option.
+  const rank = b => b.label === 'HEVC Main10' ? 0 : b.label.startsWith('AV1') ? 1
+                  : b.label.startsWith('HEVC') ? 2 : 3;
   const built = r.build.filter(b => b.encode).sort((a, b) => rank(a) - rank(b));
-  if (built.length) r.routes.push({ id: 'build', label: 'decode with ffmpeg, blend captions into the 10-bit planes, encode a frame we build ourselves', codec: built[0].codec, codecLabel: built[0].label, licence: built[0].licence, delivery: (r.families.find(f => f.label === built[0].label) || {}).delivery });
+  if (built.length) r.routes.push({ id: 'build', label: 'decode with ffmpeg, blend captions into the frame planes, encode a frame we build ourselves', codec: built[0].codec, codecLabel: built[0].label, licence: built[0].licence, depth: built[0].depth || 10, delivery: (r.families.find(f => f.label === built[0].label) || {}).delivery });
   r.canComposite = r.routes.length > 0;
   r.possible = r.canComposite && r.canEncode;
   r.route = r.routes[0] || null;
@@ -3433,7 +6233,9 @@ async function checkHdrExport() {
       `<div class="sett-row"><div class="sett-row-label">${esc(f.label)}` +
       `<div class="sett-row-sub">${esc(f.licence)} · ${esc(f.container)} · decode ${f.decode ? 'yes' : 'no'}` +
       `<br>${esc(f.delivery)}` +
-      (f.encode ? `<br>encodes as ${esc(f.encode)}` : `<br>none of ${f.tried} profile/level combinations accepted`) +
+      (f.encode
+        ? `<br>encodes as ${esc(f.encode)}${f.accel === 'prefer-software' ? ' (software encoder — much slower than hardware)' : ''}`
+        : `<br>none of ${f.tried} profile/level/acceleration combinations accepted`) +
       `</div></div>${yn(!!f.encode)}</div>`).join('');
     const f = r.frame;
     out.innerHTML =
@@ -3442,7 +6244,22 @@ async function checkHdrExport() {
         (c.granted && !c.ok ? `<div class="field-hint">asked for ${esc(c.space)}, got ${esc(c.granted)}</div>` : '')).join('') +
       r.webgl.map(c => row('WebGL2 canvas ' + c.space, c.ok) +
         (!c.ok ? `<div class="field-hint">${esc(c.err || ('asked for ' + c.space + ', got ' + (c.granted || 'nothing')))}${c.float16 ? ' · float16 buffer available' : ''}</div>` : '')).join('') +
+      row('WebGPU compositing (fast SDR export)', !!(r.webgpu && r.webgpu.ok)) +
+      `<div class="field-hint">${esc(r.webgpu && r.webgpu.ok
+        ? 'Used for the SDR export, which runs entirely on the GPU. Not usable for HDR: external textures import as SDR only, so the browser tone maps the source before the shader sees it.'
+        : (r.webgpu && r.webgpu.why) || 'not available')}</div>` +
       row('canvas HDR mode API', r.api.configureHighDynamicRange) +
+      (!r.canvas.some(c => c.ok) && !r.webgl.some(c => c.ok) && !(r.webgpu && r.webgpu.ok)
+        ? `<div class="field-hint">No HDR drawing surface is enabled. Chrome keeps these behind a flag: open ` +
+          `<strong>chrome://flags#enable-experimental-web-platform-features</strong>, enable it, restart, and check again. ` +
+          `With one of them available, HDR export stops needing ffmpeg to decode and becomes as fast as SDR.</div>`
+        : '') +
+      (r.swDecode
+        ? row('browser software decode (speed)', r.swDecode.usable) +
+          `<div class="field-hint">${esc(r.swDecode.usable
+            ? 'Accepted as ' + r.swDecode.codec + ' / ' + r.swDecode.accel + '. If its frames expose readable planes, decoding moves out of WebAssembly and exports get several times faster.'
+            : (r.swDecode.why || 'not available'))}</div>`
+        : '') +
       r.build.map(b => row('build + encode a 10-bit HLG frame (' + b.label + ')', b.encode) +
         (b.encode
           ? `<div class="field-hint">encoder returned ${b.bytes} bytes from a frame we constructed — this route works</div>`
@@ -3462,14 +6279,14 @@ async function checkHdrExport() {
           (r.routes.length > 1 ? ` ${r.routes.length} routes available in total.` : '') +
           (r.families.some(f => f.label.startsWith('HEVC') && f.encode)
             ? ''
-            : `<br>No HEVC encoder was found, and Instagram's HDR ingest is built on HEVC. Chrome 130+ does support hardware HEVC encoding on Windows and macOS, so this is usually a GPU driver or hardware-acceleration setting rather than a missing feature — check chrome://gpu for "Video Encode" and make sure "Use graphics acceleration when available" is on in Settings → System.`)
+            : `<br>No HEVC Main10 encoder was found, and Instagram's HDR ingest is built on HEVC. Check chrome://gpu under "Video Acceleration Information": if it lists "Encode hevc main" but NOT "Encode hevc main 10", this GPU has no 10-bit HEVC encoder and no setting will add one — 8-bit HEVC does not help, since HDR needs 10 bits. Browsers on Apple hardware encode HEVC Main10 through VideoToolbox, so an iPhone or a Mac will usually succeed where this machine cannot.`)
         : !r.canEncode ? 'no 10-bit HDR encoder is available here, so HDR export cannot work on this machine.'
         : 'there is a 10-bit encoder, but no way to draw captions in HDR — no reachable frame planes, no HDR canvas in 2D or WebGL, and the encoder would not take a frame we built ourselves.') +
       ` Tone-mapped SDR export is unaffected either way.</div>`;
   } catch(e) {
     console.error('HDR probe failed', e);
     badge.className = 'sett-badge no'; badge.textContent = 'Failed';
-    out.innerHTML = `<div class="field-hint">Probe failed: ${esc(e.message || String(e))}</div>`;
+    out.innerHTML = `<div class="field-hint">Probe failed: ${esc(describeError(e))}</div>`;
   } finally {
     btn.disabled = false; btn.textContent = 'Check HDR export support';
   }
@@ -3495,6 +6312,14 @@ async function checkFFCaps() {
       row('libx264', caps.encoders.libx264) + row('libx265 (10-bit HDR out)', caps.encoders.libx265) +
       `<div class="field-hint" style="margin-top:8px">` +
         `API ${esc(caps.gen)} · ${caps.filters._count || '?'} filters<br>` +
+        `Threads: ${ffThreads()} of ${navigator.hardwareConcurrency || '?'} cores` +
+        ` (${ffIsMultiThread() ? 'multi-threaded core' : 'single-threaded core'})<br>` +
+        (() => { const i = isolationReport();
+          return `Multi-threading: ${i.ok ? 'available' : '<strong>not available</strong>'}` +
+            ` (served over ${esc(i.proto)}, service worker ${i.swControlling ? 'active' : 'not controlling'},` +
+            ` isolated ${i.isolated ? 'yes' : 'no'}, SharedArrayBuffer ${i.sab ? 'yes' : 'no'})` +
+            (i.blocker ? `<br><em>${esc(i.blocker)}</em>` : '') + '<br>';
+        })() +
         `<strong>HDR source would use:</strong> ${esc(caps.hdrPlan.name)} — ${esc(caps.hdrPlan.note || '')}<br>` +
         (caps.proper
           ? 'This build can tone map properly. The app will use it automatically.'
@@ -3503,7 +6328,7 @@ async function checkFFCaps() {
   } catch (e) {
     console.error('capability check failed', e);
     badge.className = 'sett-badge no'; badge.textContent = 'Failed';
-    out.innerHTML = `<div class="field-hint">Could not load this core: ${esc(e.message || String(e))}</div>`;
+    out.innerHTML = `<div class="field-hint">Could not load this core: ${esc(describeError(e))}</div>`;
   } finally {
     btn.disabled = false; btn.textContent = 'Check capabilities';
   }
