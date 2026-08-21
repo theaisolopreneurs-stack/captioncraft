@@ -966,7 +966,7 @@ input[type="color"].color-custom { width: 34px; height: 26px; padding: 1px 2px; 
       <div style="display:flex;align-items:center;gap:8px;margin:8px 0">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;color:var(--ink2)">
           <input type="checkbox" id="testExportChk" onchange="onTestExportToggle(this.checked)" style="width:15px;height:15px">
-          Quick test — burn only the first few seconds
+          Quick test — burn only the first 10 seconds
         </label>
       </div>
       <div id="hdrOptRow" class="notice notice-info" style="display:none;text-align:left">
@@ -1059,7 +1059,7 @@ const isMobileBrowser = () =>
   /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-const BUILD_STAMP = '2026-08-20 09:26';
+const BUILD_STAMP = '2026-08-20 10:13';
 
 let ffLog = [];
 
@@ -1188,6 +1188,25 @@ async function getTranscriber(onProgress) {
   if (cachedTranscriber) return cachedTranscriber;
   const { pipeline, env } = await import(WHISPER_PKG_URL);
   env.allowLocalModels = false; env.useBrowserCache = true;
+  // "Can't create a session" from ONNX Runtime almost always means it tried to
+  // start a threaded WASM backend without SharedArrayBuffer. That needs
+  // cross-origin isolation, which a plain https host does not have, and iOS
+  // Safari is where this bites first. Say the thread count explicitly rather
+  // than letting it probe and fail.
+  //
+  // SIMD stays on - it is unrelated to isolation and worth a lot here.
+  try {
+    const isolated = !!(self.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined');
+    const threads = isolated ? Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1)) : 1;
+    env.backends = env.backends || {};
+    env.backends.onnx = env.backends.onnx || {};
+    env.backends.onnx.wasm = env.backends.onnx.wasm || {};
+    env.backends.onnx.wasm.numThreads = threads;
+    env.backends.onnx.wasm.simd = true;
+    env.backends.onnx.wasm.proxy = false;
+    console.log(`Transcription backend: ${MODEL_DTYPE()} weights, ${threads} wasm thread(s)` +
+                (isolated ? '' : ' (no cross-origin isolation, so single-threaded)'));
+  } catch(e) { console.warn('Could not configure the ONNX backend:', e); }
   cachedTranscriber = await pipeline('automatic-speech-recognition', WHISPER_MODEL_ID, {
     device: 'wasm', dtype: MODEL_DTYPE(),
     progress_callback: onProgress || (() => {})
@@ -1311,6 +1330,13 @@ function loadVideo(f) {
   v.src = url;
   v.onloadedmetadata = () => {
     vDur = v.duration; vH = v.videoHeight || 800; vW = v.videoWidth || 450;
+    // iOS Safari renders a <video> as black until it has actually decoded a
+    // frame, and loading metadata does not do that. Nudging currentTime forces
+    // one to be painted - which the preview needs, and which detectHdrQuick()
+    // needs too, since it builds a VideoFrame from this element.
+    try {
+      if (v.currentTime === 0 && vDur > 0) v.currentTime = Math.min(0.05, vDur / 2);
+    } catch(e) {}
     document.getElementById('vidName').textContent = f.name;
     document.getElementById('vidDur').textContent = fmtTime(vDur) + ' · ' + (f.size / 1024 / 1024).toFixed(1) + ' MB';
     document.getElementById('vidPreviewWrap').style.display = 'block';
@@ -1522,27 +1548,39 @@ function pickHlColor(el, c) {
   document.querySelectorAll('#hlSwatches .swatch').forEach(s => s.classList.remove('sel'));
   el.classList.add('sel'); hlColor = c;
   document.documentElement.style.setProperty('--hl-demo', c);
+  refreshColourPreviews();
 }
-function setHlColorCustom(c) { hlColor = c; document.documentElement.style.setProperty('--hl-demo', c); document.querySelectorAll('#hlSwatches .swatch').forEach(s => s.classList.remove('sel')); }
+function setHlColorCustom(c) { hlColor = c; document.documentElement.style.setProperty('--hl-demo', c); document.querySelectorAll('#hlSwatches .swatch').forEach(s => s.classList.remove('sel')); refreshColourPreviews(); }
 function pickOlColor(el, c) {
   document.querySelectorAll('#olSwatches .swatch').forEach(s => s.classList.remove('sel'));
   el.classList.add('sel'); olColor = c;
   document.documentElement.style.setProperty('--ol-demo', c);
+  refreshColourPreviews();
 }
-function setOlColorCustom(c) { olColor = c; document.documentElement.style.setProperty('--ol-demo', c); document.querySelectorAll('#olSwatches .swatch').forEach(s => s.classList.remove('sel')); }
+function setOlColorCustom(c) { olColor = c; document.documentElement.style.setProperty('--ol-demo', c); document.querySelectorAll('#olSwatches .swatch').forEach(s => s.classList.remove('sel')); refreshColourPreviews(); }
+
+// Every colour picker has to redraw the previews. The value was being stored
+// correctly - so the BURN used the new colour - but nothing on screen changed,
+// which reads as "the colour picker doesn't work".
+function refreshColourPreviews() {
+  try { renderPosition(); } catch(e) {}
+  try { updateScrubPreview(); } catch(e) {}
+}
 
 function pickPillTextColor(el, c) {
   document.querySelectorAll('#pillTextSwatches .swatch').forEach(s => s.classList.remove('sel'));
   el.classList.add('sel'); pillTextColor = c;
   document.documentElement.style.setProperty('--pill-text-demo', c);
+  refreshColourPreviews();
 }
-function setPillTextColorCustom(c) { pillTextColor = c; document.documentElement.style.setProperty('--pill-text-demo', c); document.querySelectorAll('#pillTextSwatches .swatch').forEach(s => s.classList.remove('sel')); }
+function setPillTextColorCustom(c) { pillTextColor = c; document.documentElement.style.setProperty('--pill-text-demo', c); document.querySelectorAll('#pillTextSwatches .swatch').forEach(s => s.classList.remove('sel')); refreshColourPreviews(); }
 function pickPillBgColor(el, c) {
   document.querySelectorAll('#pillBgSwatches .swatch').forEach(s => s.classList.remove('sel'));
   el.classList.add('sel'); pillBgColor = c;
   document.documentElement.style.setProperty('--pill-bg-demo', c);
+  refreshColourPreviews();
 }
-function setPillBgColorCustom(c) { pillBgColor = c; document.documentElement.style.setProperty('--pill-bg-demo', c); document.querySelectorAll('#pillBgSwatches .swatch').forEach(s => s.classList.remove('sel')); }
+function setPillBgColorCustom(c) { pillBgColor = c; document.documentElement.style.setProperty('--pill-bg-demo', c); document.querySelectorAll('#pillBgSwatches .swatch').forEach(s => s.classList.remove('sel')); refreshColourPreviews(); }
 
 setInterval(() => {
   const t = Math.floor(Date.now() / 700) % 3;
@@ -1929,8 +1967,11 @@ function capPreviewHTML(cap, dispH, activeWordIdx = 0) {
   const lineTexts = lines.map(l => l.items.map(i => i.text).join(' '));
   const rows = (style) => lineTexts.map(t => `<div style="white-space:nowrap;${style}">${esc(t)}</div>`).join('');
   switch (captionStyle) {
+    // Padding and corner radius in EM, so the preview pill keeps its proportions
+    // at any caption size instead of looking tight at large type and bloated at
+    // small. 0.3em matches the padding the burn uses.
     case 'white':   return wrapLines(lineTexts.map(t =>
-                      `<div><span style="display:inline-block;white-space:nowrap;color:${pillTextColor};background:${pillBgColor};padding:2px 8px;border-radius:4px">${esc(t)}</span></div>`).join(''));
+                      `<div><span style="display:inline-block;white-space:nowrap;color:${pillTextColor};background:${pillBgColor};padding:0.12em 0.3em;border-radius:0.18em">${esc(t)}</span></div>`).join(''));
     case 'caps':    return wrapLines(rows(`color:#fff;letter-spacing:.08em;${outlined('#000')}`));
     case 'large':   return wrapLines(rows(`color:${hlColor};${outlined('#000')}`));
     case 'outline': return wrapLines(rows(`color:${hlColor};${outlined(olColor)}`));
@@ -2612,7 +2653,11 @@ let _routeNote = null;
 // Every diagnostic round has cost a full export to learn one thing. This runs
 // the real pipeline over the first few seconds instead, so a test is cheap.
 let testExportSeconds = 0;
-const TEST_EXPORT_SECONDS = 4;
+// Ten, not four. Four seconds is enough to see colour and orientation but too
+// short to judge MOTION - judder and segment-boundary hitches need long enough
+// for a pattern to emerge, and at ~3s segments four seconds barely crosses one
+// boundary.
+const TEST_EXPORT_SECONDS = 10;
 // A test run shortens vDur so every downstream duration calculation is right for
 // the trimmed clip. It has to be put back afterwards on EVERY exit path, or the
 // next full export silently produces four seconds of video.
@@ -3491,6 +3536,7 @@ async function startBurn() {
   setBurnProg('Loading video processor...', 5);
   beginBurnClock();
   perfStart();
+  _decodedFrames = 0; _usedFrames = 0;
   _vDurBeforeTest = null;
   _hdrFailure = null;
   _lumaCheck = null;
@@ -3929,7 +3975,17 @@ async function buildDrawtextFilter(fontLoaded, colorFn) {
       // Measure the joined line, not the individual words, so the baseline
       // matches what drawtext will actually render.
       const item = { asc: lineCtx.measureText(raw).actualBoundingBoxAscent };
-      parts.push(`drawtext=${fontRef}text='${escDrawtext(raw)}':fontsize=${dispFs}:fontcolor=${fontcolor}:bordercolor=${bordercolor}:borderw=${borderw}:box=${box}:boxcolor=${boxcolor}:boxborderw=8:x=${xPx}-tw/2:y=${yFor(cy, item)}:enable='${enable}'`);
+      // PILL PADDING scales with the type. It was a flat 8 pixels, which at a
+      // 100px caption is a sliver either side and reads as the text overflowing
+      // its box. The canvas compositor already pads by ~0.3 of the font size, so
+      // the two paths now agree.
+      //
+      // The corners stay square here, and cannot be otherwise: drawtext's box is
+      // a rectangle and ffmpeg has no rounded-rect primitive. The GPU and HDR
+      // paths composite captions on a canvas and DO round them, so the pill
+      // differs between routes - noted rather than hidden.
+      const boxPad = box ? Math.round(dispFs * 0.3) : 8;
+      parts.push(`drawtext=${fontRef}text='${escDrawtext(raw)}':fontsize=${dispFs}:fontcolor=${fontcolor}:bordercolor=${bordercolor}:borderw=${borderw}:box=${box}:boxcolor=${boxcolor}:boxborderw=${boxPad}:x=${xPx}-tw/2:y=${yFor(cy, item)}:enable='${enable}'`);
     });
   });
   return parts.join(',');
@@ -4107,11 +4163,17 @@ async function exportHdrWithCaptions({ ff, info, codec, fps, depth = 10, onProgr
       if (encoderError) throw encoderError;
       const raw = unit.name
         ? await perfTime('decode', () => decodeSegmentToRaw(ff, unit.name, w, h, depth, null, fps, !!info.variableRate))
-        : await perfTime('decode', () => decodeSliceToRaw(ff, unit.slice, fps, w, h, depth), unit.slice.count);
+        // No count here: the frames are counted once below, from what actually
+        // came back. Passing slice.count as well double-counted every frame,
+        // which reported 600 frames for a 300-frame clip and made the decode
+        // look twice as wasteful as it is - a measurement bug I then "fixed"
+        // by doubling the slice budget.
+        : await perfTime('decode', () => decodeSliceToRaw(ff, unit.slice, fps, w, h, depth));
       const got = unit.name
         ? Math.floor(raw.length / frameBytes)
         : Math.min(unit.slice.count, Math.floor(raw.length / frameBytes));
       perfAdd('decode', 0, got);
+      _usedFrames += got;
       for (let i = 0; i < got; i++) {
         const idx = unit.name ? idxBase + i : unit.slice.start + i;
         const tSec = idx / fps;
@@ -4154,6 +4216,21 @@ async function exportHdrWithCaptions({ ff, info, codec, fps, depth = 10, onProgr
     : concatChunks(encoded);
   await ff.writeFile(plan.file, stream);
   const outName = getOutName() + '_captioned_hdr.' + plan.ext;
+  if (_decodedFrames > 0 && _usedFrames > 0) {
+    const ratio = _decodedFrames / _usedFrames;
+    console.log(`Decode efficiency: ${_usedFrames} frames used of ${_decodedFrames} decoded` +
+                ` (${ratio.toFixed(2)}x). Anything above 1.0 is seek overhead.`);
+    if (ratio > 1.25) {
+      _routeNote = (_routeNote ? _routeNote + ' ' : '') +
+        `Decoded ${_decodedFrames} frames to use ${_usedFrames} (${ratio.toFixed(2)}x) — seek overhead.`;
+    }
+  }
+  const expectFrames2 = Math.round((vDur || 0) * fps);
+  if (expectFrames2 > 0 && Math.abs(done - expectFrames2) > Math.max(2, expectFrames2 * 0.01)) {
+    const msg = `Frame count mismatch: expected about ${expectFrames2}, got ${done}`;
+    console.warn(msg + ' — this shows up as judder.');
+    _routeNote = (_routeNote ? _routeNote + ' ' : '') + msg + '.';
+  }
   const muxFps2 = (vDur > 0 && done > 1) ? (done / vDur) : fps;
   let r = await perfTime('mux', () => runEncode(ff, hdrRemuxArgs(plan, info, muxFps2, !!info.hasAudio), outName));
   if (!r.ok) {
@@ -4193,7 +4270,24 @@ async function exportHdrWithCaptions({ ff, info, codec, fps, depth = 10, onProgr
 // keyframes by definition, so each segment then decodes from its own first
 // frame with nothing wasted. It also makes each ffmpeg run longer and fewer,
 // which is what a multi-threaded core wants.
+// DISABLED, and kept only for the record.
+//
+// Splitting with -f segment cuts at keyframes, which sounds lossless and is not.
+// HEVC CRA keyframes may carry LEADING PICTURES (RASL) that reference frames
+// before them; when a decoder starts fresh at that keyframe those pictures
+// cannot be decoded and are discarded by design. So every segment boundary
+// quietly loses a few frames - invisible in a duration check, because the mux
+// rate is derived from the frame count, and visible to the eye as a hitch every
+// few seconds. Exactly "you can see the stitching, at times".
+//
+// Seek-based slicing does not have this problem: -ss lands on the keyframe
+// BEFORE the target and decodes forward THROUGH it, so nothing is discarded.
+// It re-decodes some frames it throws away, which costs time, and correct is
+// worth more than fast here.
+const USE_SEGMENTS = false;
+
 async function segmentSource(ff, seconds) {
+  if (!USE_SEGMENTS) return null;
   const names = [];
   ffLog = [];
   try {
@@ -4259,6 +4353,8 @@ function segmentSeconds(w, h, depth, fps) {
 // everything up to the slice, which for a 60-second clip is the difference
 // between a usable export and a hopeless one. format=yuv420p10le is a no-op on
 // a 10-bit source and guarantees the layout on anything else.
+let _decodedFrames = 0, _usedFrames = 0;
+
 async function decodeSliceToRaw(ff, slice, fps, w, h, depth = 10, vfOverride = null) {
   const name = 'slice.raw';
   const _t0 = performance.now();
@@ -4283,6 +4379,10 @@ async function decodeSliceToRaw(ff, slice, fps, w, h, depth = 10, vfOverride = n
     name,
   ]);
   perfAdd('  ffmpeg decode', performance.now() - _t0);
+  // -ss decodes from the preceding keyframe, so ffmpeg reports more frames than
+  // this slice needs. The difference is the waste, and it is worth showing.
+  const _fm = (ffLog.join('\n').match(/frame=\s*(\d+)/g) || []).pop();
+  if (_fm) _decodedFrames += parseInt(_fm.replace(/\D+/g, ''), 10) || 0;
   // Reading the slice back is a straight copy of every decoded byte out of the
   // wasm heap - about 3 MB a frame at 8-bit 1080p, so a hundred frames is a
   // third of a gigabyte moved per slice. Timed separately because if THIS is
@@ -4394,7 +4494,7 @@ async function exportSdrViaHardware({ ff, info, plans, drawFilter, codec, fps, o
       if (encErr) throw encErr;
       const raw = unit.name
         ? await perfTime('decode', () => decodeSegmentToRaw(ff, unit.name, w, h, 8, chosen.vf, fps, !!info.variableRate))
-        : await perfTime('decode', () => decodeSliceToRaw(ff, unit.slice, fps, w, h, 8, chosen.vf), unit.slice.count);
+        : await perfTime('decode', () => decodeSliceToRaw(ff, unit.slice, fps, w, h, 8, chosen.vf));
       const got = unit.name
         ? Math.floor(raw.length / frameBytes)
         : Math.min(unit.slice.count, Math.floor(raw.length / frameBytes));
@@ -4870,7 +4970,19 @@ async function exportHdrViaX265({ ff, info, fontLoaded, preset, crf, onProgress 
 // two thirds of every decode is thrown away re-reaching the start of the slice.
 // Bigger slices amortise that: at 8-bit 1080p a 320 MB budget holds ~100 frames,
 // which is longer than a typical keyframe interval, so almost nothing is wasted.
-const HDR_CHUNK_BUDGET_DESKTOP = 320 * 1024 * 1024;
+// SIZED AGAINST SEEK WASTE, which is now the dominant cost.
+//
+// Seeking with -ss lands on the keyframe BEFORE the slice and decodes forward,
+// discarding frames until the slice actually starts. That waste is fixed per
+// slice - roughly one keyframe interval - so it is the SLICE SIZE that decides
+// how much of the decode is thrown away. Measured on real footage: ~100-frame
+// slices decoded 600 frames to use 300. Half the work was discarded.
+//
+// Doubling the slice halves the number of seeks and therefore halves the waste.
+// 640 MB holds about 200 frames of 8-bit 1080p, which is longer than a phone's
+// keyframe interval, so most slices now decode little more than they use.
+// Mobile stays small - iOS kills tabs for far less than this.
+const HDR_CHUNK_BUDGET_DESKTOP = 640 * 1024 * 1024;
 const HDR_CHUNK_BUDGET_MOBILE  =  64 * 1024 * 1024;
 
 
@@ -5659,6 +5771,15 @@ async function exportHdrViaWebGPU({ ff, info, encoderCodec, fps, mode = 'hdr', o
 
   const plan = hdrOutputPlan(encoderCodec);
   await ff.writeFile(plan.file, concatChunks(encoded));
+  // Frames in versus frames out. A mismatch means the decode lost or duplicated
+  // pictures, which is judder - and nothing else in the pipeline would notice,
+  // because the mux rate is derived from whatever count arrives.
+  const expectFrames = Math.round((vDur || 0) * fps);
+  if (expectFrames > 0 && Math.abs(outIndex - expectFrames) > Math.max(2, expectFrames * 0.01)) {
+    const msg = `Frame count mismatch: expected about ${expectFrames}, got ${outIndex}`;
+    console.warn(msg + ' — this shows up as judder.');
+    _routeNote = (_routeNote ? _routeNote + ' ' : '') + msg + '.';
+  }
   const outName = getOutName() + (sdr ? '_captioned.mp4' : '_captioned_hdr.mp4');
   const muxInfo = sdr ? { ...info, hdrTrc: null } : info;
   // Mux at the rate the frames THEMSELVES imply. If the reported rate was
